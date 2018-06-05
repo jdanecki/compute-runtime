@@ -1,0 +1,9 @@
+#!/bin/bash
+
+export BUILD_OS=kanapi-0.10.3-master
+export COMPILER=gcc-7
+export GIT_PAGER=cat
+
+#rm -rf neo
+
+./scripts/run-build.sh

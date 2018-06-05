@@ -1,0 +1,13 @@
+FROM kanapi/kanapi-ocl:0.10.1-master
+MAINTAINER Jacek Danecki <jacek.m.danecki@gmail.com>
+
+ENV GIT_PAGER=cat
+
+COPY neo /root/neo
+COPY scripts/prepare-workspace.sh /root
+
+RUN /root/prepare-workspace.sh
+RUN cd /root/build ; cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+    -DDO_NOT_RUN_AUB_TESTS=1 -DDONT_CARE_OF_VIRTUALS=1 ../neo ; ninja
+CMD ["/bin/bash"]
