@@ -50,7 +50,7 @@ class AllocsTracker;
 class MapBaseAllocationTracker;
 class SVMAllocsManager;
 
-enum allocationType {
+enum AllocationUsage {
     TEMPORARY_ALLOCATION,
     REUSABLE_ALLOCATION
 };
@@ -90,6 +90,9 @@ class MemoryManager {
     virtual ~MemoryManager();
     MOCKABLE_VIRTUAL void *allocateSystemMemory(size_t size, size_t alignment);
 
+    virtual void addAllocationToHostPtrManager(GraphicsAllocation *memory) = 0;
+    virtual void removeAllocationFromHostPtrManager(GraphicsAllocation *memory) = 0;
+
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size) {
         return allocateGraphicsMemory(size, static_cast<size_t>(0u));
     }
@@ -112,10 +115,6 @@ class MemoryManager {
     virtual GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) = 0;
 
     GraphicsAllocation *allocateGraphicsMemoryForSVM(size_t size, bool coherent);
-
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) {
-        return createGraphicsAllocationFromSharedHandle(handle, requireSpecificBitness, false);
-    }
 
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) = 0;
 
@@ -149,12 +148,12 @@ class MemoryManager {
 
     virtual uint64_t getInternalHeapBaseAddress() = 0;
 
-    virtual bool cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationType);
+    virtual bool cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage);
 
     void freeAllocationsList(uint32_t waitTaskCount, AllocationsList &allocationsList);
 
-    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationType);
-    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationType, uint32_t taskCount);
+    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage);
+    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage, uint32_t taskCount);
 
     RequirementsStatus checkAllocationsForOverlapping(AllocationRequirements *requirements, CheckedFragments *checkedFragments);
 

@@ -37,6 +37,8 @@ class CommandStreamReceiverWithAUBDump : public BaseCSR {
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer *allocationsForResidency) override;
     void processResidency(ResidencyContainer *allocationsForResidency) override;
 
+    void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
+
     MemoryManager *createMemoryManager(bool enable64kbPages) override;
 
     CommandStreamReceiver *aubCSR = nullptr;

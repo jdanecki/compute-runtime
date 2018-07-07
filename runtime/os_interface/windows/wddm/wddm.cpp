@@ -24,6 +24,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/kmdaf_listener.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/gmm_helper/page_table_mngr.h"
@@ -84,50 +85,44 @@ Wddm::Wddm() : initialized(false),
 
 Wddm::~Wddm() {
     resetPageTableManager(nullptr);
-    if (initialized)
-        destroyGmmContext();
     destroyContext(context);
     destroyPagingQueue();
     destroyDevice();
     closeAdapter();
 }
 
-bool Wddm::enumAdapters(unsigned int devNum, HardwareInfo &outHardwareInfo) {
-    bool success = false;
-    if (devNum > 0)
+bool Wddm::enumAdapters(HardwareInfo &outHardwareInfo) {
+    std::unique_ptr<Wddm> wddm(createWddm(Wddm::pickWddmInterfaceVersion(outHardwareInfo)));
+    UNRECOVERABLE_IF(!wddm.get());
+
+    if (!wddm->gdi->isInitialized()) {
         return false;
-
-    std::unique_ptr<Wddm> wddm(createWddm(WddmInterfaceVersion::Wddm20));
-    DEBUG_BREAK_IF(wddm == nullptr);
-
-    if (wddm->gdi->isInitialized()) {
-        do {
-            success = wddm->openAdapter();
-            if (!success)
-                break;
-            success = wddm->queryAdapterInfo();
-            if (!success)
-                break;
-        } while (!success);
     }
-    if (success) {
-        auto productFamily = wddm->gfxPlatform->eProductFamily;
-        if (hardwareInfoTable[productFamily] == nullptr)
-            return false;
-
-        outHardwareInfo.pPlatform = new PLATFORM(*wddm->gfxPlatform);
-        outHardwareInfo.pSkuTable = new FeatureTable(*wddm->featureTable);
-        outHardwareInfo.pWaTable = new WorkaroundTable(*wddm->waTable);
-        outHardwareInfo.pSysInfo = new GT_SYSTEM_INFO(*wddm->gtSystemInfo);
-
-        outHardwareInfo.capabilityTable = hardwareInfoTable[productFamily]->capabilityTable;
-        outHardwareInfo.capabilityTable.maxRenderFrequency = wddm->maxRenderFrequency;
-        outHardwareInfo.capabilityTable.instrumentationEnabled &= wddm->instrumentationEnabled;
-
-        HwInfoConfig *hwConfig = HwInfoConfig::get(productFamily);
-        hwConfig->adjustPlatformForProductFamily(&outHardwareInfo);
+    if (!wddm->openAdapter()) {
+        return false;
     }
-    return success;
+    if (!wddm->queryAdapterInfo()) {
+        return false;
+    }
+
+    auto productFamily = wddm->gfxPlatform->eProductFamily;
+    if (!hardwareInfoTable[productFamily]) {
+        return false;
+    }
+
+    outHardwareInfo.pPlatform = new PLATFORM(*wddm->gfxPlatform);
+    outHardwareInfo.pSkuTable = new FeatureTable(*wddm->featureTable);
+    outHardwareInfo.pWaTable = new WorkaroundTable(*wddm->waTable);
+    outHardwareInfo.pSysInfo = new GT_SYSTEM_INFO(*wddm->gtSystemInfo);
+
+    outHardwareInfo.capabilityTable = hardwareInfoTable[productFamily]->capabilityTable;
+    outHardwareInfo.capabilityTable.maxRenderFrequency = wddm->maxRenderFrequency;
+    outHardwareInfo.capabilityTable.instrumentationEnabled &= wddm->instrumentationEnabled;
+
+    HwInfoConfig *hwConfig = HwInfoConfig::get(productFamily);
+    hwConfig->adjustPlatformForProductFamily(&outHardwareInfo);
+
+    return true;
 }
 
 bool Wddm::queryAdapterInfo() {
@@ -399,7 +394,7 @@ bool Wddm::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr
     }
 
     status = gdi->mapGpuVirtualAddress(&MapGPUVA);
-    gpuPtr = Gmm::canonize(MapGPUVA.VirtualAddress);
+    gpuPtr = GmmHelper::canonize(MapGPUVA.VirtualAddress);
 
     if (status == STATUS_PENDING) {
         interlockedMax(currentPagingFenceValue, MapGPUVA.PagingFenceValue);
@@ -424,7 +419,7 @@ bool Wddm::freeGpuVirtualAddres(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) {
     NTSTATUS status = STATUS_SUCCESS;
     D3DKMT_FREEGPUVIRTUALADDRESS FreeGPUVA = {0};
     FreeGPUVA.hAdapter = adapter;
-    FreeGPUVA.BaseAddress = Gmm::decanonize(gpuPtr);
+    FreeGPUVA.BaseAddress = GmmHelper::decanonize(gpuPtr);
     FreeGPUVA.Size = size;
 
     status = gdi->freeGpuVirtualAddress(&FreeGPUVA);
@@ -636,7 +631,8 @@ bool Wddm::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     alloc->handle = allocationInfo[0].hAllocation;
     alloc->resourceHandle = OpenResource.hResource;
 
-    alloc->gmm = Gmm::create((PGMM_RESOURCE_INFO)(allocationInfo[0].pPrivateDriverData));
+    auto resourceInfo = const_cast<void *>(allocationInfo[0].pPrivateDriverData);
+    alloc->gmm = new Gmm(static_cast<GMM_RESOURCE_INFO *>(resourceInfo));
 
     return true;
 }
@@ -672,7 +668,8 @@ bool Wddm::openNTHandle(HANDLE handle, WddmAllocation *alloc) {
     alloc->handle = allocationInfo2[0].hAllocation;
     alloc->resourceHandle = openResourceFromNtHandle.hResource;
 
-    alloc->gmm = Gmm::create((PGMM_RESOURCE_INFO)(allocationInfo2[0].pPrivateDriverData));
+    auto resourceInfo = const_cast<void *>(allocationInfo2[0].pPrivateDriverData);
+    alloc->gmm = new Gmm(static_cast<GMM_RESOURCE_INFO *>(resourceInfo));
 
     return true;
 }
@@ -958,6 +955,14 @@ void Wddm::resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress
     monitoredFence.fenceHandle = handle;
     monitoredFence.cpuAddress = cpuAddress;
     monitoredFence.gpuAddress = gpuAddress;
+}
+
+WddmInterfaceVersion Wddm::pickWddmInterfaceVersion(const HardwareInfo &hwInfo) {
+    if (hwInfo.pSkuTable && hwInfo.pSkuTable->ftrWddmHwQueues) {
+        return WddmInterfaceVersion::Wddm23;
+    }
+    // Use default version when hwInfo is not yet populated (eg. during enumAdapter call)
+    return WddmInterfaceVersion::Wddm20;
 }
 
 } // namespace OCLRT

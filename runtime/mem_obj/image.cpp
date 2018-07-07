@@ -36,6 +36,7 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "igfxfmid.h"
@@ -125,7 +126,6 @@ Image *Image::create(Context *context,
     UNRECOVERABLE_IF(surfaceFormat == nullptr);
     Image *image = nullptr;
     GraphicsAllocation *memory = nullptr;
-    const auto &hwInfo = context->getDevice(0)->getHardwareInfo();
     MemoryManager *memoryManager = context->getMemoryManager();
     Buffer *parentBuffer = castToObject<Buffer>(imageDesc->mem_object);
     Image *parentImage = castToObject<Image>(imageDesc->mem_object);
@@ -190,7 +190,7 @@ Image *Image::create(Context *context,
 
         auto hostPtrRowPitch = imageDesc->image_row_pitch ? imageDesc->image_row_pitch : imageWidth * surfaceFormat->ImageElementSizeInBytes;
         auto hostPtrSlicePitch = imageDesc->image_slice_pitch ? imageDesc->image_slice_pitch : hostPtrRowPitch * imageHeight;
-        auto isTilingAllowed = context->isSharedContext ? false : Gmm::allowTiling(*imageDesc);
+        auto isTilingAllowed = context->isSharedContext ? false : GmmHelper::allowTiling(*imageDesc);
         imgInfo.preferRenderCompression = isTilingAllowed;
 
         bool zeroCopy = false;
@@ -205,7 +205,7 @@ Image *Image::create(Context *context,
             hostPtr = parentBuffer->getHostPtr();
             hostPtrToSet = const_cast<void *>(hostPtr);
             parentBuffer->incRefInternal();
-            Gmm::queryImgFromBufferParams(imgInfo, memory);
+            GmmHelper::queryImgFromBufferParams(imgInfo, memory);
 
             UNRECOVERABLE_IF(imgInfo.offset != 0);
             imgInfo.offset = parentBuffer->getOffset();
@@ -213,7 +213,7 @@ Image *Image::create(Context *context,
             if (memoryManager->peekVirtualPaddingSupport() && (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) {
                 // Retrieve sizes from GMM and apply virtual padding if buffer storage is not big enough
                 auto queryGmmImgInfo(imgInfo);
-                std::unique_ptr<Gmm> gmm(Gmm::createGmmAndQueryImgParams(queryGmmImgInfo, hwInfo));
+                std::unique_ptr<Gmm> gmm(new Gmm(queryGmmImgInfo));
                 auto gmmAllocationSize = gmm->gmmResourceInfo->getSizeAllocation();
                 if (gmmAllocationSize > memory->getUnderlyingBufferSize()) {
                     memory = memoryManager->createGraphicsAllocationWithPadding(memory, gmmAllocationSize);
@@ -221,11 +221,10 @@ Image *Image::create(Context *context,
             }
         } else if (parentImage != nullptr) {
             memory = parentImage->getGraphicsAllocation();
-            memory->gmm->queryImageParams(imgInfo, hwInfo);
+            memory->gmm->queryImageParams(imgInfo);
             isTilingAllowed = parentImage->allowTiling();
         } else {
-            gmm = new Gmm();
-            gmm->queryImageParams(imgInfo, hwInfo);
+            gmm = new Gmm(imgInfo);
 
             errcodeRet = CL_OUT_OF_HOST_MEMORY;
             if (flags & CL_MEM_USE_HOST_PTR) {
@@ -290,8 +289,8 @@ Image *Image::create(Context *context,
         }
 
         auto allocationType = (flags & (CL_MEM_READ_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS))
-                                  ? GraphicsAllocation::ALLOCATION_TYPE_IMAGE
-                                  : GraphicsAllocation::ALLOCATION_TYPE_IMAGE | GraphicsAllocation::ALLOCATION_TYPE_WRITABLE;
+                                  ? GraphicsAllocation::AllocationType::IMAGE
+                                  : GraphicsAllocation::AllocationType::IMAGE | GraphicsAllocation::AllocationType::WRITABLE;
         memory->setAllocationType(allocationType);
 
         DBG_LOG(LogMemoryObject, __FUNCTION__, "hostPtr:", hostPtr, "size:", memory->getUnderlyingBufferSize(), "memoryStorage:", memory->getUnderlyingBuffer(), "GPU address:", std::hex, memory->getGpuAddress());
@@ -399,7 +398,7 @@ Image *Image::createSharedImage(Context *context, SharingHandler *sharingHandler
                                 GraphicsAllocation *graphicsAllocation, GraphicsAllocation *mcsAllocation,
                                 cl_mem_flags flags, ImageInfo &imgInfo, uint32_t cubeFaceIndex, uint32_t baseMipLevel, uint32_t mipCount) {
     auto tileWalk = graphicsAllocation->gmm->gmmResourceInfo->getTileType();
-    auto tileMode = Gmm::getRenderTileMode(tileWalk);
+    auto tileMode = GmmHelper::getRenderTileMode(tileWalk);
     bool isTiledImage = tileMode ? true : false;
 
     auto sharedImage = createImageHw(context, flags, graphicsAllocation->getUnderlyingBufferSize(),
@@ -444,9 +443,12 @@ cl_int Image::validate(Context *context,
             pDevice->getCap<CL_DEVICE_IMAGE_PITCH_ALIGNMENT>(reinterpret_cast<const void *&>(pitchAlignment), srcSize, retSize);
             pDevice->getCap<CL_DEVICE_IMAGE_BASE_ADDRESS_ALIGNMENT>(reinterpret_cast<const void *&>(baseAddressAlignment), srcSize, retSize);
 
+            const auto rowSize = imageDesc->image_row_pitch != 0 ? imageDesc->image_row_pitch : alignUp(imageDesc->image_width * surfaceFormat->NumChannels * surfaceFormat->PerChannelSizeInBytes, *pitchAlignment);
+            const auto minimumBufferSize = imageDesc->image_height * rowSize;
+
             if ((imageDesc->image_row_pitch % (*pitchAlignment)) ||
                 ((parentBuffer->getFlags() & CL_MEM_USE_HOST_PTR) && (reinterpret_cast<uint64_t>(parentBuffer->getHostPtr()) % (*baseAddressAlignment))) ||
-                (imageDesc->image_height * (imageDesc->image_row_pitch != 0 ? imageDesc->image_row_pitch : imageDesc->image_width) > parentBuffer->getSize())) {
+                (minimumBufferSize > parentBuffer->getSize())) {
                 return CL_INVALID_IMAGE_FORMAT_DESCRIPTOR;
             } else if (flags & (CL_MEM_USE_HOST_PTR | CL_MEM_COPY_HOST_PTR)) {
                 return CL_INVALID_VALUE;
@@ -647,17 +649,13 @@ cl_int Image::getImageParams(Context *context,
                              size_t *imageRowPitch,
                              size_t *imageSlicePitch) {
     cl_int retVal = CL_SUCCESS;
-    const auto &hwInfo = context->getDevice(0)->getHardwareInfo();
 
     ImageInfo imgInfo = {0};
     cl_image_desc imageDescriptor = *imageDesc;
     imgInfo.imgDesc = &imageDescriptor;
     imgInfo.surfaceFormat = surfaceFormat;
 
-    Gmm *gmm = nullptr;
-    gmm = new Gmm();
-    gmm->queryImageParams(imgInfo, hwInfo);
-    delete gmm;
+    std::unique_ptr<Gmm> gmm(new Gmm(imgInfo)); // query imgInfo
 
     *imageRowPitch = imgInfo.rowPitch;
     *imageSlicePitch = imgInfo.slicePitch;
@@ -703,7 +701,12 @@ cl_int Image::getImageInfo(cl_image_info paramName,
 
     case CL_IMAGE_ROW_PITCH:
         srcParamSize = sizeof(size_t);
-        srcParam = &hostPtrRowPitch;
+        if (mcsSurfaceInfo.multisampleCount > 1) {
+            retParam = imageDesc.image_width * surfFmtInfo.ImageElementSizeInBytes * imageDesc.num_samples;
+        } else {
+            retParam = hostPtrRowPitch;
+        }
+        srcParam = &retParam;
         break;
 
     case CL_IMAGE_SLICE_PITCH:
@@ -1299,4 +1302,4 @@ bool Image::hasValidParentImageFormat(const cl_image_format &imageFormat) const 
         return false;
     }
 }
-}
+} // namespace OCLRT

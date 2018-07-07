@@ -22,6 +22,7 @@
 
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
@@ -51,13 +52,13 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
     D3DTexture2dDesc textureDesc = {};
     sharingFcns->getTexture2dDesc(&textureDesc, d3dTexture);
 
-    if (textureDesc.Format == DXGI_FORMAT_NV12) {
+    if ((textureDesc.Format == DXGI_FORMAT_NV12) || (textureDesc.Format == DXGI_FORMAT_P010) || (textureDesc.Format == DXGI_FORMAT_P016)) {
         if ((subresource % 2) == 0) {
             oclPlane = OCLPlane::PLANE_Y;
         } else {
             oclPlane = OCLPlane::PLANE_UV;
         }
-        imgInfo.plane = Gmm::convertPlane(oclPlane);
+        imgInfo.plane = GmmHelper::convertPlane(oclPlane);
         arrayIndex = subresource / 2u;
     } else if (subresource >= textureDesc.MipLevels * textureDesc.ArraySize) {
         err.set(CL_INVALID_VALUE);
@@ -81,7 +82,7 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
         alloc = context->getMemoryManager()->createGraphicsAllocationFromNTHandle(sharedHandle);
     } else {
         sharingFcns->getSharedHandle(textureStaging, &sharedHandle);
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false, false);
     }
     DEBUG_BREAK_IF(!alloc);
 
@@ -89,7 +90,7 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
 
     auto d3dTextureObj = new D3DTexture<D3D>(context, d3dTexture, subresource, textureStaging, sharedResource);
 
-    if (textureDesc.Format == DXGI_FORMAT_NV12) {
+    if ((textureDesc.Format == DXGI_FORMAT_NV12) || (textureDesc.Format == DXGI_FORMAT_P010) || (textureDesc.Format == DXGI_FORMAT_P016)) {
         imgInfo.surfaceFormat = findYuvSurfaceFormatInfo(textureDesc.Format, oclPlane, flags);
     } else {
         imgInfo.surfaceFormat = findSurfaceFormatInfo(alloc->gmm->gmmResourceInfo->getResourceFormat(), flags);
@@ -138,7 +139,7 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
         alloc = context->getMemoryManager()->createGraphicsAllocationFromNTHandle(sharedHandle);
     } else {
         sharingFcns->getSharedHandle(textureStaging, &sharedHandle);
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false, false);
     }
     DEBUG_BREAK_IF(!alloc);
 
@@ -146,7 +147,7 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
 
     auto d3dTextureObj = new D3DTexture<D3D>(context, d3dTexture, subresource, textureStaging, sharedResource);
 
-    imgInfo.qPitch = alloc->gmm->queryQPitch(context->getDevice(0)->getHardwareInfo().pPlatform->eRenderCoreFamily, GMM_RESOURCE_TYPE::RESOURCE_3D);
+    imgInfo.qPitch = alloc->gmm->queryQPitch(GMM_RESOURCE_TYPE::RESOURCE_3D);
 
     imgInfo.surfaceFormat = findSurfaceFormatInfo(alloc->gmm->gmmResourceInfo->getResourceFormat(), flags);
 
@@ -165,7 +166,11 @@ const SurfaceFormatInfo *D3DTexture<D3D>::findYuvSurfaceFormatInfo(DXGI_FORMAT d
     } else {
         imgFormat.image_channel_order = CL_RG;
     }
-    imgFormat.image_channel_data_type = CL_UNORM_INT8;
+    if ((dxgiFormat == DXGI_FORMAT_P010) || (dxgiFormat == DXGI_FORMAT_P016)) {
+        imgFormat.image_channel_data_type = CL_UNORM_INT16;
+    } else {
+        imgFormat.image_channel_data_type = CL_UNORM_INT8;
+    }
 
     return Image::getSurfaceFormatFromTable(flags, &imgFormat);
 }

@@ -55,10 +55,7 @@ set(RUNTIME_GENX_CPP_FILES
 )
 
 macro(macro_for_each_platform)
-  list(APPEND CLOC_SRCS_LIB
-    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/hw_info_${PLATFORM_IT_LOWER}.inl
-    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_${PLATFORM_IT_LOWER}.cpp
-  )
+  list(APPEND CLOC_SRCS_LIB ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/hw_info_${PLATFORM_IT_LOWER}.inl)
 endmacro()
 
 macro(macro_for_each_gen)
@@ -69,6 +66,8 @@ macro(macro_for_each_gen)
     endif()
   endforeach()
   apply_macro_for_each_platform()
+  
+  list(APPEND CLOC_SRCS_LIB ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_${GEN_TYPE_LOWER}.cpp)
 endmacro()
 
 apply_macro_for_each_gen("SUPPORTED")
@@ -79,6 +78,8 @@ set(CLOC_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
 )
 add_executable(cloc ${CLOC_SRCS})
+add_subdirectories()
+
 create_project_source_tree(cloc ${IGDRCL_SOURCE_DIR}/runtime)
 
 set(CLOC_INCLUDES
@@ -94,6 +95,10 @@ set(CLOC_INCLUDES
 target_include_directories(cloc BEFORE PRIVATE ${CLOC_INCLUDES})
 
 target_compile_definitions(cloc PUBLIC ${CLOC_LIB_FLAGS_DEFINITIONS} ${SUPPORTED_GEN_FLAGS_DEFINITONS} DEFAULT_PLATFORM=${DEFAULT_SUPPORTED_PLATFORM})
+
+if(MSVC)
+  target_link_libraries(cloc dbghelp)
+endif()
 
 if(UNIX)
   target_link_libraries(cloc dl pthread)

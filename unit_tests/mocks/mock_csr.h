@@ -153,11 +153,11 @@ class MockCsrHw2 : public CommandStreamReceiverHw<GfxFamily> {
     using CommandStreamReceiverHw<GfxFamily>::csrSizeRequestFlags;
     using CommandStreamReceiver::commandStream;
     using CommandStreamReceiver::dispatchMode;
+    using CommandStreamReceiver::isPreambleSent;
     using CommandStreamReceiver::lastSentCoherencyRequest;
     using CommandStreamReceiver::mediaVfeStateDirty;
     using CommandStreamReceiver::taskCount;
     using CommandStreamReceiver::taskLevel;
-    using CommandStreamReceiver::isPreambleSent;
 
     MockCsrHw2(const HardwareInfo &hwInfoIn) : CommandStreamReceiverHw<GfxFamily>(hwInfoIn) {}
 
@@ -217,6 +217,7 @@ class MockFlatBatchBufferHelper : public FlatBatchBufferHelperHw<GfxFamily> {
 
 class MockCommandStreamReceiver : public CommandStreamReceiver {
   public:
+    using CommandStreamReceiver::latestFlushedTaskCount;
     using CommandStreamReceiver::latestSentTaskCount;
     using CommandStreamReceiver::tagAddress;
     std::vector<char> instructionHeapReserveredData;
@@ -249,6 +250,10 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     }
 
     void setOSInterface(OSInterface *osInterface);
+
+    CommandStreamReceiverType getType() override {
+        return CommandStreamReceiverType::CSR_HW;
+    }
 };
 
 #if defined(__clang__)

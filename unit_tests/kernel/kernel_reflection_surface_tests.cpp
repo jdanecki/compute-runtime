@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -655,7 +655,7 @@ TEST(KernelReflectionSurfaceTestSingle, CreateKernelReflectionSurfaceCalledOnNon
 TEST(KernelReflectionSurfaceTestSingle, ObtainKernelReflectionSurfaceWithoutKernelArgs) {
     MockProgram program;
     MockContext context;
-    std::unique_ptr<MockDevice> device(Device::create<OCLRT::MockDevice>(platformDevices[0]));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
     cl_queue_properties properties[1] = {0};
@@ -706,7 +706,7 @@ TEST(KernelReflectionSurfaceTestSingle, ObtainKernelReflectionSurfaceWithoutKern
 TEST(KernelReflectionSurfaceTestSingle, ObtainKernelReflectionSurfaceWithDeviceQueueKernelArg) {
     MockProgram program;
     MockContext context;
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(platformDevices[0]));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
 
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
@@ -1248,7 +1248,7 @@ class ReflectionSurfaceHelperFixture : public PlatformFixture, public ::testing:
     }
 
     void SetUp() override {
-        PlatformFixture::SetUp(numPlatformDevices, platformDevices);
+        PlatformFixture::SetUp();
     }
 
     void TearDown() override {
@@ -1264,7 +1264,7 @@ class ReflectionSurfaceHelperSetKernelDataTest : public testing::TestWithParam<s
     }
 
     void SetUp() override {
-        PlatformFixture::SetUp(numPlatformDevices, platformDevices);
+        PlatformFixture::SetUp();
 
         samplerStateArray.BorderColorOffset = 0x3;
         samplerStateArray.Count = 1;

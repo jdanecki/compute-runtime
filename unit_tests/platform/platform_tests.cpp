@@ -34,14 +34,9 @@
 using namespace OCLRT;
 
 struct PlatformTest : public ::testing::Test {
-    PlatformTest() {}
-
-    void SetUp() override { pPlatform = platform(); }
-
-    void TearDown() override {}
-
+    void SetUp() override { pPlatform.reset(new Platform()); }
     cl_int retVal = CL_SUCCESS;
-    Platform *pPlatform = nullptr;
+    std::unique_ptr<Platform> pPlatform;
 };
 
 TEST_F(PlatformTest, getDevices) {
@@ -51,7 +46,7 @@ TEST_F(PlatformTest, getDevices) {
     Device *device = pPlatform->getDevice(0);
     EXPECT_EQ(nullptr, device);
 
-    bool ret = pPlatform->initialize(numPlatformDevices, platformDevices);
+    bool ret = pPlatform->initialize();
     EXPECT_TRUE(ret);
 
     EXPECT_TRUE(pPlatform->isInitialized());
@@ -67,36 +62,19 @@ TEST_F(PlatformTest, getDevices) {
 
     auto allDevices = pPlatform->getDevices();
     EXPECT_NE(nullptr, allDevices);
-
-    pPlatform->shutdown();
-    devNum = pPlatform->getNumDevices();
-    EXPECT_EQ(0u, devNum);
-
-    allDevices = pPlatform->getDevices();
-    EXPECT_EQ(nullptr, allDevices);
 }
 
 TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
     std::string compilerExtensions = pPlatform->peekCompilerExtensions();
     EXPECT_EQ(std::string(""), compilerExtensions);
 
-    pPlatform->initialize(numPlatformDevices, platformDevices);
+    pPlatform->initialize();
     compilerExtensions = pPlatform->peekCompilerExtensions();
 
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
     if (std::string(pPlatform->getDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos) {
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_subgroups")));
     }
-
-    pPlatform->shutdown();
-    compilerExtensions.shrink_to_fit();
-}
-
-TEST_F(PlatformTest, destructorCallsShutdownAndReleasesAllResources) {
-    Platform *platform = new Platform;
-    ASSERT_NE(nullptr, platform);
-    platform->initialize(numPlatformDevices, platformDevices);
-    delete platform;
 }
 
 TEST_F(PlatformTest, hasAsyncEventsHandler) {
@@ -112,10 +90,8 @@ TEST(PlatformTestSimple, shutdownClosesAsyncEventHandlerThread) {
     EXPECT_EQ(mockAsyncHandler, platform->getAsyncEventsHandler());
 
     mockAsyncHandler->openThread();
-
-    platform->shutdown();
-    EXPECT_EQ(nullptr, mockAsyncHandler->thread);
     delete platform;
+    EXPECT_TRUE(MockAsyncEventHandlerGlobals::destructorCalled);
 }
 
 namespace OCLRT {
@@ -147,13 +123,13 @@ class PlatformFailingTest : public PlatformTest {
 
 TEST_F(PlatformFailingTest, givenPlatformInitializationWhenIncorrectHwInfoThenInitializationFails) {
     Platform *platform = new Platform;
-    bool ret = platform->initialize(numPlatformDevices, platformDevices);
+    bool ret = platform->initialize();
     EXPECT_FALSE(ret);
     EXPECT_FALSE(platform->isInitialized());
     delete platform;
 }
 
-TEST_F(PlatformTest, getAsCompilerEnabledExtensionsString) {
+TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatchingSubstringsAndMandatoryTrailingSpace) {
     const HardwareInfo *hwInfo;
     hwInfo = platformDevices[0];
     std::string extensionsList = getExtensionsList(*hwInfo);
@@ -170,9 +146,11 @@ TEST_F(PlatformTest, getAsCompilerEnabledExtensionsString) {
     if (hwInfo->capabilityTable.ftrSupportsFP64) {
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_fp64")));
     }
+
+    EXPECT_THAT(compilerExtensions, ::testing::EndsWith(std::string(" ")));
 }
 
-TEST_F(PlatformTest, getAsCompilerEnabledExtensionsStringTestNotFP64) {
+TEST_F(PlatformTest, givenNotSupportingCl21WhenPlatformNotSupportFp64ThenNotFillMatchingSubstringAndFillMandatoryTrailingSpace) {
     HardwareInfo TesthwInfo = *platformDevices[0];
     TesthwInfo.capabilityTable.ftrSupportsFP64 = false;
     TesthwInfo.capabilityTable.clVersionSupport = 10;
@@ -185,6 +163,8 @@ TEST_F(PlatformTest, getAsCompilerEnabledExtensionsStringTestNotFP64) {
 
     EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_fp64"))));
     EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_subgroups"))));
+
+    EXPECT_THAT(compilerExtensions, ::testing::EndsWith(std::string(" ")));
 }
 
 TEST_F(PlatformTest, testRemoveLastSpace) {
@@ -199,4 +179,31 @@ TEST_F(PlatformTest, testRemoveLastSpace) {
     std::string xSpaceString = "x ";
     removeLastSpace(xSpaceString);
     EXPECT_EQ(std::string("x"), xSpaceString);
+}
+TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledTwiceThenTheSamePlatformIsReturned) {
+    ASSERT_EQ(nullptr, platformImpl);
+    auto platform = constructPlatform();
+    EXPECT_EQ(platform, platformImpl.get());
+    auto platform2 = constructPlatform();
+    EXPECT_EQ(platform2, platform);
+    EXPECT_NE(platform, nullptr);
+    platformImpl.reset(nullptr);
+}
+
+TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledAfterResetThenNewPlatformIsConstructed) {
+    ASSERT_EQ(nullptr, platformImpl);
+    auto platform = constructPlatform();
+    std::unique_ptr<Platform> temporaryOwnership(std::move(platformImpl));
+    EXPECT_EQ(nullptr, platformImpl.get());
+    auto platform2 = constructPlatform();
+    EXPECT_NE(platform2, platform);
+    EXPECT_NE(platform, nullptr);
+    EXPECT_NE(platform2, nullptr);
+    platformImpl.reset(nullptr);
+}
+
+TEST(PlatformConstructionTest, givenPlatformThatIsNotInitializedWhenGetDevicesIsCalledThenNullptrIsReturned) {
+    Platform platform;
+    auto devices = platform.getDevices();
+    EXPECT_EQ(nullptr, devices);
 }

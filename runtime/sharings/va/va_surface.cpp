@@ -26,7 +26,7 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/hw_info.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 
 namespace OCLRT {
@@ -35,7 +35,6 @@ Image *VASurface::createSharedVaSurface(Context *context, VASharingFunctions *sh
                                         cl_uint plane, cl_int *errcodeRet) {
     ErrorCodeHelper errorCode(errcodeRet, CL_SUCCESS);
 
-    const auto &hwInfo = context->getDevice(0)->getHardwareInfo();
     auto memoryManager = context->getMemoryManager();
     unsigned int sharedHandle = 0;
     VAImage vaImage = {};
@@ -71,13 +70,11 @@ Image *VASurface::createSharedVaSurface(Context *context, VASharingFunctions *sh
 
     imgSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &imgFormat);
 
-    sharingFunctions->destroyImage(vaImage.image_id);
-
     sharingFunctions->extGetSurfaceHandle(surface, &sharedHandle);
 
     auto alloc = memoryManager->createGraphicsAllocationFromSharedHandle(sharedHandle, false, true);
 
-    Gmm *gmm = Gmm::createGmmAndQueryImgParams(imgInfo, hwInfo);
+    Gmm *gmm = new Gmm(imgInfo);
     DEBUG_BREAK_IF(alloc->gmm != nullptr);
     alloc->gmm = gmm;
 
@@ -88,7 +85,12 @@ Image *VASurface::createSharedVaSurface(Context *context, VASharingFunctions *sh
     if (plane == 1) {
         imgDesc.image_width /= 2;
         imgDesc.image_height /= 2;
+        imgInfo.offset = vaImage.offsets[1];
+        imgInfo.yOffset = 0;
+        imgInfo.xOffset = 0;
+        imgInfo.yOffsetForUVPlane = static_cast<uint32_t>(imgInfo.offset / vaImage.pitches[0]);
     }
+    sharingFunctions->destroyImage(vaImage.image_id);
 
     auto vaSurface = new VASurface(sharingFunctions, imageId, plane, surface, context->getInteropUserSyncEnabled());
 

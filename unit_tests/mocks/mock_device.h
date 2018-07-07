@@ -23,6 +23,7 @@
 #pragma once
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/device/device.h"
+#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
@@ -48,7 +49,7 @@ class MockDevice : public Device {
     void *peekSlmWindowStartAddress() const {
         return this->slmWindowStartAddress;
     }
-    MockDevice(const HardwareInfo &hwInfo, bool isRootDevice = true);
+    MockDevice(const HardwareInfo &hwInfo);
 
     DeviceInfo *getDeviceInfoToModify() {
         return &this->deviceInfo;
@@ -102,14 +103,19 @@ class MockDevice : public Device {
                                       MemoryManager *memManager) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
         T *device = new T(*pHwInfo);
+        device->connectToExecutionEnvironment(new ExecutionEnvironment);
         if (memManager) {
             device->setMemoryManager(memManager);
         }
-        if (false == createDeviceImpl(pHwInfo, true, *device)) {
+        if (false == createDeviceImpl(pHwInfo, *device)) {
             delete device;
             return nullptr;
         }
         return device;
+    }
+    template <typename T>
+    static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
+        return Device::create<T>(pHwInfo, new ExecutionEnvironment);
     }
 
     void allocatePreemptionAllocationIfNotPresent() {
@@ -197,29 +203,29 @@ class FailMemoryManager : public MockMemoryManager {
 
 class FailDevice : public Device {
   public:
-    FailDevice(const HardwareInfo &hwInfo, bool isRootDevice = true)
-        : Device(hwInfo, isRootDevice) {
+    FailDevice(const HardwareInfo &hwInfo)
+        : Device(hwInfo) {
         memoryManager = new FailMemoryManager;
     }
 };
 
 class FailDeviceAfterOne : public Device {
   public:
-    FailDeviceAfterOne(const HardwareInfo &hwInfo, bool isRootDevice = true)
-        : Device(hwInfo, isRootDevice) {
+    FailDeviceAfterOne(const HardwareInfo &hwInfo)
+        : Device(hwInfo) {
         memoryManager = new FailMemoryManager(1);
     }
 };
 
 class MockAlignedMallocManagerDevice : public MockDevice {
   public:
-    MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, bool isRootDevice = true);
+    MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo);
 };
 
 template <typename T = SourceLevelDebugger>
 class MockDeviceWithSourceLevelDebugger : public MockDevice {
   public:
-    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo, bool isRootDevice = true) : MockDevice(hwInfo, isRootDevice) {
+    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo) : MockDevice(hwInfo) {
         T *sourceLevelDebuggerCreated = new T(nullptr);
         sourceLevelDebugger.reset(sourceLevelDebuggerCreated);
     }

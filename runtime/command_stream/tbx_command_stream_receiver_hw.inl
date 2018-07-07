@@ -26,6 +26,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
+#include "runtime/os_interface/debug_settings_manager.h"
 #include <cstring>
 
 namespace OCLRT {
@@ -43,11 +44,17 @@ TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(const Hardware
         engineInfo.sizeRCS = 0;
         engineInfo.tailRCS = 0;
     }
+    auto debugDeviceId = DebugManager.flags.OverrideAubDeviceId.get();
+    this->aubDeviceId = debugDeviceId == -1
+                            ? hwInfoIn.capabilityTable.aubDeviceId
+                            : static_cast<uint32_t>(debugDeviceId);
 }
 
 template <typename GfxFamily>
 TbxCommandStreamReceiverHw<GfxFamily>::~TbxCommandStreamReceiverHw() {
-    stream.close();
+    if (streamInitialized) {
+        stream.close();
+    }
 
     for (auto &engineInfo : engineInfoTable) {
         alignedFree(engineInfo.pLRCA);
@@ -175,7 +182,8 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const Hardw
     csr->stream.open(nullptr);
 
     // Add the file header.
-    csr->stream.init(AubMemDump::SteppingValues::A, AUB::Traits::device);
+    bool streamInitialized = csr->stream.init(AubMemDump::SteppingValues::A, csr->aubDeviceId);
+    csr->streamInitialized = streamInitialized;
 
     return csr;
 }
@@ -383,6 +391,18 @@ void TbxCommandStreamReceiverHw<GfxFamily>::makeCoherent(GraphicsAllocation &gfx
 }
 
 template <typename GfxFamily>
+void TbxCommandStreamReceiverHw<GfxFamily>::waitBeforeMakingNonResidentWhenRequired(bool blocking) {
+    if (blocking) {
+        auto allocation = this->getTagAllocation();
+        UNRECOVERABLE_IF(allocation == nullptr);
+
+        while (*this->getTagAddress() < this->latestFlushedTaskCount) {
+            this->makeCoherent(*allocation);
+        }
+    }
+}
+
+template <typename GfxFamily>
 uint64_t TbxCommandStreamReceiverHw<GfxFamily>::getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation) {
     return 7;
 }
@@ -390,7 +410,6 @@ uint64_t TbxCommandStreamReceiverHw<GfxFamily>::getPPGTTAdditionalBits(GraphicsA
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::getGTTData(void *memory, AubGTTData &data) {
     data.present = true;
-    data.writable = true;
-    data.userSupervisor = true;
+    data.localMemory = false;
 }
 } // namespace OCLRT

@@ -459,6 +459,10 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
 
     void flushBatchedSubmissions() override {}
 
+    CommandStreamReceiverType getType() override {
+        return CommandStreamReceiverType::CSR_HW;
+    }
+
     std::map<const void *, size_t> residency;
 };
 
@@ -502,7 +506,7 @@ TEST_F(KernelPrivateSurfaceTest, testPrivateSurface) {
     pKernel->makeResident(*csr.get());
     EXPECT_EQ(1u, csr->residency.size());
 
-    csr->makeSurfacePackNonResident(nullptr);
+    csr->makeSurfacePackNonResident(nullptr, false);
     pKernel->updateWithCompletionStamp(*csr.get(), nullptr);
     EXPECT_EQ(0u, csr->residency.size());
 
@@ -2190,7 +2194,7 @@ TEST(KernelTest, givenKernelWithKernelInfoWith32bitPointerSizeThenReport32bit) {
 
     MockContext context;
     MockProgram program(&context, false);
-    std::unique_ptr<MockDevice> device(Device::create<OCLRT::MockDevice>(nullptr));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, info, *device.get()));
 
     EXPECT_TRUE(kernel->is32Bit());
@@ -2202,7 +2206,7 @@ TEST(KernelTest, givenKernelWithKernelInfoWith64bitPointerSizeThenReport64bit) {
 
     MockContext context;
     MockProgram program(&context, false);
-    std::unique_ptr<MockDevice> device(Device::create<OCLRT::MockDevice>(nullptr));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, info, *device.get()));
 
     EXPECT_FALSE(kernel->is32Bit());

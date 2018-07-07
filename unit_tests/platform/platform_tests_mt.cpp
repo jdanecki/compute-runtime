@@ -27,33 +27,25 @@
 using namespace OCLRT;
 
 struct PlatformTestMt : public ::testing::Test {
-    PlatformTestMt() {}
-
-    void SetUp() override { pPlatform = platform(); }
-
-    void TearDown() override {}
+    void SetUp() override { pPlatform.reset(new Platform); }
 
     static void initThreadFunc(Platform *pP) {
-        pP->initialize(numPlatformDevices, platformDevices);
-    }
-
-    static void shutdownThreadFunc(Platform *pP) {
-        pP->shutdown();
+        pP->initialize();
     }
 
     cl_int retVal = CL_SUCCESS;
-    Platform *pPlatform = nullptr;
+    std::unique_ptr<Platform> pPlatform;
 };
 
 static void callinitPlatform(Platform *plt, bool *ret) {
-    *ret = plt->initialize(numPlatformDevices, platformDevices);
+    *ret = plt->initialize();
 }
 
 TEST_F(PlatformTestMt, initialize) {
     std::thread threads[10];
     bool ret[10];
     for (int i = 0; i < 10; ++i) {
-        threads[i] = std::thread(callinitPlatform, pPlatform, &ret[i]);
+        threads[i] = std::thread(callinitPlatform, pPlatform.get(), &ret[i]);
     }
 
     for (auto &th : threads)
@@ -64,10 +56,10 @@ TEST_F(PlatformTestMt, initialize) {
 
     EXPECT_TRUE(pPlatform->isInitialized());
 
-    pPlatform->shutdown();
+    pPlatform.reset(new Platform());
 
     for (int i = 0; i < 10; ++i) {
-        threads[i] = std::thread(callinitPlatform, pPlatform, &ret[i]);
+        threads[i] = std::thread(callinitPlatform, pPlatform.get(), &ret[i]);
     }
 
     for (auto &th : threads)
@@ -76,31 +68,18 @@ TEST_F(PlatformTestMt, initialize) {
     for (int i = 0; i < 10; ++i)
         EXPECT_TRUE(ret[i]);
 
-    pPlatform->shutdown();
 }
 
 TEST_F(PlatformTestMt, mtSafeTest) {
     size_t devNum = pPlatform->getNumDevices();
     EXPECT_EQ(0u, devNum);
 
-    bool ret = pPlatform->initialize(numPlatformDevices, platformDevices);
-    std::thread t1(PlatformTestMt::initThreadFunc, pPlatform);
-    std::thread t2(PlatformTestMt::shutdownThreadFunc, pPlatform);
-    EXPECT_TRUE(ret);
+    std::thread t1(PlatformTestMt::initThreadFunc, pPlatform.get());
+    std::thread t2(PlatformTestMt::initThreadFunc, pPlatform.get());
 
     t1.join();
     t2.join();
 
-    std::thread t3(PlatformTestMt::initThreadFunc, pPlatform);
-    std::thread t4(PlatformTestMt::initThreadFunc, pPlatform);
-
-    t3.join();
-    t4.join();
-
     devNum = pPlatform->getNumDevices();
     EXPECT_EQ(numPlatformDevices, devNum);
-
-    pPlatform->shutdown();
-    devNum = pPlatform->getNumDevices();
-    EXPECT_EQ(0u, devNum);
 }

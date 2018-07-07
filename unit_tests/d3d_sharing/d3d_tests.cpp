@@ -78,7 +78,7 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
             return alloc;
         }
         GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override {
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)handle), false);
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)handle), false, false);
             alloc->gmm = forceGmm;
             gmmOwnershipPassed = true;
             return alloc;
@@ -108,7 +108,7 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
 
     void SetUp() override {
         dbgRestore = new DebugManagerStateRestore();
-        PlatformFixture::SetUp(numPlatformDevices, platformDevices);
+        PlatformFixture::SetUp();
         context = new MockContext(pPlatform->getDevice(0));
         context->forcePreferD3dSharedResources(true);
 
@@ -357,6 +357,66 @@ TYPED_TEST_P(D3DTests, givenNV12FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams
     ASSERT_NE(nullptr, image.get());
 
     auto expectedFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::PLANE_UV, CL_MEM_READ_WRITE);
+    EXPECT_TRUE(memcmp(expectedFormat, &image->getSurfaceFormatInfo(), sizeof(SurfaceFormatInfo)) == 0);
+    EXPECT_EQ(1u, mockGmmResInfo->getOffsetCalled);
+    EXPECT_EQ(3u, mockGmmResInfo->arrayIndexPassedToGetOffset);
+}
+
+TYPED_TEST_P(D3DTests, givenP010FormatAndEvenPlaneWhen2dCreatedThenSetPlaneParams) {
+    this->mockSharingFcns->mockTexture2dDesc.Format = DXGI_FORMAT_P010;
+    EXPECT_CALL(*this->mockSharingFcns, getTexture2dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture2dDesc));
+
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create2d(this->context, (D3DTexture2d *)&this->dummyD3DTexture, CL_MEM_READ_WRITE, 4, nullptr));
+    ASSERT_NE(nullptr, image.get());
+
+    auto expectedFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_P010, OCLPlane::PLANE_Y, CL_MEM_READ_WRITE);
+    EXPECT_TRUE(memcmp(expectedFormat, &image->getSurfaceFormatInfo(), sizeof(SurfaceFormatInfo)) == 0);
+    EXPECT_EQ(1u, mockGmmResInfo->getOffsetCalled);
+    EXPECT_EQ(2u, mockGmmResInfo->arrayIndexPassedToGetOffset);
+}
+
+TYPED_TEST_P(D3DTests, givenP010FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams) {
+    this->mockSharingFcns->mockTexture2dDesc.Format = DXGI_FORMAT_P010;
+    EXPECT_CALL(*this->mockSharingFcns, getTexture2dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture2dDesc));
+
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create2d(this->context, (D3DTexture2d *)&this->dummyD3DTexture, CL_MEM_READ_WRITE, 7, nullptr));
+    ASSERT_NE(nullptr, image.get());
+
+    auto expectedFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_P010, OCLPlane::PLANE_UV, CL_MEM_READ_WRITE);
+    EXPECT_TRUE(memcmp(expectedFormat, &image->getSurfaceFormatInfo(), sizeof(SurfaceFormatInfo)) == 0);
+    EXPECT_EQ(1u, mockGmmResInfo->getOffsetCalled);
+    EXPECT_EQ(3u, mockGmmResInfo->arrayIndexPassedToGetOffset);
+}
+
+TYPED_TEST_P(D3DTests, givenP016FormatAndEvenPlaneWhen2dCreatedThenSetPlaneParams) {
+    this->mockSharingFcns->mockTexture2dDesc.Format = DXGI_FORMAT_P016;
+    EXPECT_CALL(*this->mockSharingFcns, getTexture2dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture2dDesc));
+
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create2d(this->context, (D3DTexture2d *)&this->dummyD3DTexture, CL_MEM_READ_WRITE, 4, nullptr));
+    ASSERT_NE(nullptr, image.get());
+
+    auto expectedFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_P016, OCLPlane::PLANE_Y, CL_MEM_READ_WRITE);
+    EXPECT_TRUE(memcmp(expectedFormat, &image->getSurfaceFormatInfo(), sizeof(SurfaceFormatInfo)) == 0);
+    EXPECT_EQ(1u, mockGmmResInfo->getOffsetCalled);
+    EXPECT_EQ(2u, mockGmmResInfo->arrayIndexPassedToGetOffset);
+}
+
+TYPED_TEST_P(D3DTests, givenP016FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams) {
+    this->mockSharingFcns->mockTexture2dDesc.Format = DXGI_FORMAT_P016;
+    EXPECT_CALL(*this->mockSharingFcns, getTexture2dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture2dDesc));
+
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create2d(this->context, (D3DTexture2d *)&this->dummyD3DTexture, CL_MEM_READ_WRITE, 7, nullptr));
+    ASSERT_NE(nullptr, image.get());
+
+    auto expectedFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_P016, OCLPlane::PLANE_UV, CL_MEM_READ_WRITE);
     EXPECT_TRUE(memcmp(expectedFormat, &image->getSurfaceFormatInfo(), sizeof(SurfaceFormatInfo)) == 0);
     EXPECT_EQ(1u, mockGmmResInfo->getOffsetCalled);
     EXPECT_EQ(3u, mockGmmResInfo->arrayIndexPassedToGetOffset);
@@ -1183,25 +1243,30 @@ TYPED_TEST_P(D3DTests, fillTexture3dDesc) {
 }
 
 TYPED_TEST_P(D3DTests, givenPlaneWhenFindYuvSurfaceCalledThenReturnValidImgFormat) {
-    auto surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::NO_PLANE, CL_MEM_READ_WRITE);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == CL_UNORM_INT8);
+    const SurfaceFormatInfo *surfaceFormat;
+    DXGI_FORMAT testFormat[] = {DXGI_FORMAT::DXGI_FORMAT_NV12, DXGI_FORMAT::DXGI_FORMAT_P010, DXGI_FORMAT::DXGI_FORMAT_P016};
+    int channelDataType[] = {CL_UNORM_INT8, CL_UNORM_INT16, CL_UNORM_INT16};
+    for (int n = 0; n < 3; n++) {
+        surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(testFormat[n], OCLPlane::NO_PLANE, CL_MEM_READ_WRITE);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == channelDataType[n]);
 
-    surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::PLANE_U, CL_MEM_READ_WRITE);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == CL_UNORM_INT8);
+        surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(testFormat[n], OCLPlane::PLANE_U, CL_MEM_READ_WRITE);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == channelDataType[n]);
 
-    surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::PLANE_UV, CL_MEM_READ_WRITE);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == CL_UNORM_INT8);
+        surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(testFormat[n], OCLPlane::PLANE_UV, CL_MEM_READ_WRITE);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == channelDataType[n]);
 
-    surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::PLANE_V, CL_MEM_READ_WRITE);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == CL_UNORM_INT8);
+        surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(testFormat[n], OCLPlane::PLANE_V, CL_MEM_READ_WRITE);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_RG);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == channelDataType[n]);
 
-    surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(DXGI_FORMAT_NV12, OCLPlane::PLANE_Y, CL_MEM_READ_WRITE);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_R);
-    EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == CL_UNORM_INT8);
+        surfaceFormat = D3DTexture<TypeParam>::findYuvSurfaceFormatInfo(testFormat[n], OCLPlane::PLANE_Y, CL_MEM_READ_WRITE);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_order == CL_R);
+        EXPECT_TRUE(surfaceFormat->OCLImageFormat.image_channel_data_type == channelDataType[n]);
+    }
 }
 
 TYPED_TEST_P(D3DTests, inForced32BitAddressingBufferCreatedHas32BitAllocation) {
@@ -1253,7 +1318,11 @@ REGISTER_TYPED_TEST_CASE_P(D3DTests,
                            fillTexture3dDesc,
                            givenPlaneWhenFindYuvSurfaceCalledThenReturnValidImgFormat,
                            givenNV12FormatAndEvenPlaneWhen2dCreatedThenSetPlaneParams,
+                           givenP010FormatAndEvenPlaneWhen2dCreatedThenSetPlaneParams,
+                           givenP016FormatAndEvenPlaneWhen2dCreatedThenSetPlaneParams,
                            givenNV12FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams,
+                           givenP010FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams,
+                           givenP016FormatAndOddPlaneWhen2dCreatedThenSetPlaneParams,
                            inForced32BitAddressingBufferCreatedHas32BitAllocation);
 
 typedef ::testing::Types<D3DTypesHelper::D3D10, D3DTypesHelper::D3D11> D3DTypes;

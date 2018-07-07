@@ -21,7 +21,6 @@
 set(RUNTIME_SRCS_GENX_CPP_WINDOWS
   windows/command_stream_receiver
   windows/translationtable_callbacks
-  windows/wddm_engine_mapper
   windows/wddm
 )
 
@@ -72,13 +71,14 @@ macro(macro_for_each_platform)
   foreach(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.inl")
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${GENX_PREFIX}/${PLATFORM_FILE})
   endforeach()
-
-  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}/linux/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
-  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_WINDOWS ${GENX_PREFIX}/windows/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
-
-  # Enable platform
-  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_${PLATFORM_IT_LOWER}.cpp)
-  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_hw_info_config_${PLATFORM_IT_LOWER}.cpp)
+  
+  foreach(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.h")
+    if(EXISTS ${GENX_PREFIX}/${PLATFORM_FILE})
+      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/${PLATFORM_FILE})
+    endif()
+  endforeach()
+  
+  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}/linux/hw_info_config_${PLATFORM_IT_LOWER}.inl)
 endmacro()
 
 macro(macro_for_each_gen)
@@ -90,6 +90,12 @@ macro(macro_for_each_gen)
   if(EXISTS "${GENX_PREFIX}/hw_cmds_generated_patched.h")
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENX_PREFIX}/hw_cmds_generated_patched.h")
   endif()
+  if(EXISTS "${GENX_PREFIX}/hw_cmds_base.h")
+    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENX_PREFIX}/hw_cmds_base.h")
+  endif()
+  if(EXISTS "${GENX_PREFIX}/hw_info_${GEN_TYPE_LOWER}.h")
+    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENX_PREFIX}/hw_info_${GEN_TYPE_LOWER}.h")
+  endif()
 
   foreach(OS_IT "BASE" "WINDOWS" "LINUX")
     foreach(SRC_IT ${RUNTIME_SRCS_GENX_CPP_${OS_IT}})
@@ -98,8 +104,13 @@ macro(macro_for_each_gen)
   endforeach()
 
   apply_macro_for_each_platform()
-
+  
+  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_WINDOWS ${GENX_PREFIX}/windows/hw_info_config_${GEN_TYPE_LOWER}.cpp)
+  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}/linux/hw_info_config_${GEN_TYPE_LOWER}.cpp)
+  
   list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_family_full_${GEN_TYPE_LOWER}.cpp)
+  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_hw_info_config_${GEN_TYPE_LOWER}.cpp)
+  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_${GEN_TYPE_LOWER}.cpp)
 
   list(APPEND RUNTIME_SRCS_GENX_ALL_BASE ${RUNTIME_SRCS_${GEN_TYPE}_H_BASE})
   list(APPEND RUNTIME_SRCS_GENX_ALL_BASE ${RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE})

@@ -30,6 +30,8 @@
 #include "runtime/device/device.h"
 #include "runtime/device/device_vector.h"
 #include "runtime/device/driver_info.h"
+#include "runtime/execution_environment/execution_environment.h"
+#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/options.h"
@@ -76,13 +78,14 @@ bool familyEnabled[IGFX_MAX_CORE] = {
     false,
 };
 
-Device::Device(const HardwareInfo &hwInfo,
-               bool isRootDevice)
-    : memoryManager(nullptr), enabledClVersion(false), hwInfo(hwInfo), isRoot(isRootDevice),
-      commandStreamReceiver(nullptr), tagAddress(nullptr), tagAllocation(nullptr), preemptionAllocation(nullptr),
+Device::Device(const HardwareInfo &hwInfo)
+    : memoryManager(nullptr), enabledClVersion(false), hwInfo(hwInfo), commandStreamReceiver(nullptr),
+      tagAddress(nullptr), tagAllocation(nullptr), preemptionAllocation(nullptr),
       osTime(nullptr), slmWindowStartAddress(nullptr) {
     memset(&deviceInfo, 0, sizeof(deviceInfo));
     deviceExtensions.reserve(1000);
+    name.reserve(100);
+    GmmHelper::hwInfo = &hwInfo;
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
     engineType = DebugManager.flags.NodeOrdinal.get() == -1
                      ? hwInfo.capabilityTable.defaultEngineType
@@ -125,10 +128,13 @@ Device::~Device() {
     tagAllocation = nullptr;
     delete memoryManager;
     memoryManager = nullptr;
+    if (executionEnvironment) {
+        executionEnvironment->decRefInternal();
+    }
 }
 
-bool Device::createDeviceImpl(const HardwareInfo *pHwInfo,
-                              bool isRootDevice, Device &outDevice) {
+bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
+    outDevice.executionEnvironment->initGmm(pHwInfo);
     CommandStreamReceiver *commandStreamReceiver = createCommandStream(pHwInfo);
     if (!commandStreamReceiver) {
         return false;
@@ -252,28 +258,19 @@ unsigned int Device::getSupportedClVersion() const {
 /* We hide the retain and release function of BaseObject. */
 void Device::retain() {
     DEBUG_BREAK_IF(!isValid());
-
-    /* According to CL spec, root devices are always available with
-       1 reference. Only subdevices need reference. */
-    if (!isRoot) {
-        BaseObject<_cl_device_id>::retain();
-    }
 }
 
 unique_ptr_if_unused<Device> Device::release() {
     DEBUG_BREAK_IF(!isValid());
-
-    /* According to CL spec, root devices are always avaible with
-       1 reference. Only subdevices need reference. */
-    if (!isRoot) {
-        return BaseObject<_cl_device_id>::release();
-    }
-
     return unique_ptr_if_unused<Device>(this, false);
 }
 
 bool Device::isSimulation() {
-    return hwInfo.capabilityTable.isSimulation(hwInfo.pPlatform->usDeviceID);
+    bool simulation = hwInfo.capabilityTable.isSimulation(hwInfo.pPlatform->usDeviceID);
+    if (commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
+        simulation = true;
+    }
+    return simulation;
 }
 
 double Device::getPlatformHostTimerResolution() const {
@@ -287,5 +284,9 @@ GFXCORE_FAMILY Device::getRenderCoreFamily() const {
 
 bool Device::isSourceLevelDebuggerActive() const {
     return deviceInfo.sourceLevelDebuggerActive;
+}
+void Device::connectToExecutionEnvironment(ExecutionEnvironment *executionEnvironment) {
+    executionEnvironment->incRefInternal();
+    this->executionEnvironment = executionEnvironment;
 }
 } // namespace OCLRT

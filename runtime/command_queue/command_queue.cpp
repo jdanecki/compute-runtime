@@ -234,7 +234,7 @@ LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
             allocation = memoryManager->allocateGraphicsMemory(requiredSize, MemoryConstants::pageSize);
         }
 
-        allocation->setAllocationType(GraphicsAllocation::ALLOCATION_TYPE_LINEAR_STREAM);
+        allocation->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
         // Deallocate the old block, if not null
         auto oldAllocation = commandStream->getGraphicsAllocation();
@@ -578,7 +578,7 @@ bool CommandQueue::setupDebugSurface(Kernel *kernel) {
                                   kernel->getKernelInfo().patchInfo.pAllocateSystemThreadSurface->Offset);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
-    Buffer::setSurfaceState(context, surfaceState, sizeToPatch, addressToPatch, debugSurface);
+    Buffer::setSurfaceState(device, surfaceState, sizeToPatch, addressToPatch, debugSurface);
     return true;
 }
 

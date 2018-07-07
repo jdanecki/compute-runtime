@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -21,6 +21,7 @@
  */
 
 #pragma once
+#include "runtime/platform/platform.h"
 #include "unit_tests/aub_tests/command_stream/aub_command_stream_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/built_in_fixture.h"
@@ -36,6 +37,7 @@ struct CommandEnqueueAUBFixture : public CommandEnqueueBaseFixture,
                                   public AUBCommandStreamFixture {
     using AUBCommandStreamFixture::SetUp;
     void SetUp() {
+        constructPlatform();
         CommandEnqueueBaseFixture::SetUp(cl_command_queue_properties(0));
         AUBCommandStreamFixture::SetUp(pCmdQ);
     }
@@ -43,6 +45,7 @@ struct CommandEnqueueAUBFixture : public CommandEnqueueBaseFixture,
     void TearDown() {
         AUBCommandStreamFixture::TearDown();
         CommandEnqueueBaseFixture::TearDown();
+        platformImpl.reset(nullptr);
     }
 };
-}
+} // namespace OCLRT

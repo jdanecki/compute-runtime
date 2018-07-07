@@ -149,6 +149,41 @@ TEST_F(MemoryAllocatorTest, allocateSystem) {
     memoryManager->freeSystemMemory(ptr);
 }
 
+TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToHostPtrManagerThenfragmentHasCorrectValues) {
+    void *cpuPtr = (void *)0x30000;
+    size_t size = 0x1000;
+
+    GraphicsAllocation gfxAllocation(cpuPtr, size);
+    memoryManager->addAllocationToHostPtrManager(&gfxAllocation);
+    auto fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    EXPECT_NE(fragment, nullptr);
+    EXPECT_TRUE(fragment->driverAllocation);
+    EXPECT_EQ(fragment->refCount, 1);
+    EXPECT_EQ(fragment->fragmentCpuPointer, cpuPtr);
+    EXPECT_EQ(fragment->fragmentSize, size);
+    EXPECT_NE(fragment->osInternalStorage, nullptr);
+
+    FragmentStorage fragmentStorage = {};
+    fragmentStorage.fragmentCpuPointer = cpuPtr;
+    memoryManager->hostPtrManager.storeFragment(fragmentStorage);
+    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    EXPECT_EQ(fragment->refCount, 2);
+
+    fragment->driverAllocation = false;
+    memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
+    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    EXPECT_EQ(fragment->refCount, 2);
+    fragment->driverAllocation = true;
+
+    memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
+    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    EXPECT_EQ(fragment->refCount, 1);
+
+    memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
+    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    EXPECT_EQ(fragment, nullptr);
+}
+
 TEST_F(MemoryAllocatorTest, allocateSystemAligned) {
     unsigned int alignment = 0x100;
 
@@ -787,6 +822,8 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
+    ExecutionEnvironment execEnv;
+    execEnv.initGmm(*platformDevices);
     auto queryGmm = MockGmm::queryImgParams(imgInfo);
 
     auto imageAllocation = memoryManager.allocateGraphicsMemoryForImage(imgInfo, queryGmm.get());
@@ -799,7 +836,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerAndUnifiedAuxCapableAllocationWhenMappingThenReturnFalse) {
     OsAgnosticMemoryManager memoryManager;
 
-    auto gmm = Gmm::create(nullptr, 123, false);
+    auto gmm = new Gmm(nullptr, 123, false);
     auto allocation = memoryManager.allocateGraphicsMemory(123);
     allocation->gmm = gmm;
 
@@ -847,7 +884,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenCreateGraphicsAllocat
     OsAgnosticMemoryManager memoryManager;
     osHandle handle = 1;
     auto size = 4096u;
-    auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, false);
+    auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, false, false);
     EXPECT_NE(nullptr, sharedAllocation);
     EXPECT_FALSE(sharedAllocation->isCoherent());
     EXPECT_NE(nullptr, sharedAllocation->getUnderlyingBuffer());
@@ -1180,7 +1217,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultOsAgnosticMemoryManagerWhenItIsQueried
 }
 
 TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
-    Gmm *gmm = Gmm::create(nullptr, 65536, false);
+    Gmm *gmm = new Gmm(nullptr, 65536, false);
     EXPECT_NE(nullptr, gmm);
     delete gmm;
 }
@@ -1401,12 +1438,12 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationType);
+    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
     };
 
-    auto cleanAllocationsWithTaskCount = [taskCountReady, memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(taskCountReady, allocationType);
+    auto cleanAllocationsWithTaskCount = [taskCountReady, memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(taskCountReady, allocationUsage);
     };
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillOnce(::testing::Invoke(cleanAllocations)).WillOnce(::testing::Invoke(cleanAllocationsWithTaskCount));
@@ -1457,8 +1494,8 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationType);
+    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
     };
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillRepeatedly(::testing::Invoke(cleanAllocations));

@@ -89,7 +89,6 @@ TEST_F(DeviceTest, GivenDebugVariableForcing32BitAllocationsWhenDeviceIsCreatedT
 
 TEST_F(DeviceTest, retainAndRelease) {
     ASSERT_NE(nullptr, pDevice);
-    ASSERT_EQ(true, pDevice->isRootDevice());
 
     pDevice->retain();
     pDevice->retain();
@@ -128,20 +127,20 @@ TEST_F(DeviceTest, givenDebugVariableOverrideEngineTypeWhenDeviceIsCreatedThenUs
 }
 
 struct SmallMockDevice : public Device {
-    SmallMockDevice(const HardwareInfo &hwInfo, bool isRootDevice = true)
-        : Device(hwInfo, isRootDevice) {}
+    SmallMockDevice(const HardwareInfo &hwInfo)
+        : Device(hwInfo) {}
     GraphicsAllocation *peekTagAllocation() { return this->tagAllocation; }
 };
 
 TEST(DeviceCreation, givenDeviceWithUsedTagAllocationWhenItIsDestroyedThenThereAreNoCrashesAndLeaks) {
     overrideCommandStreamReceiverCreation = 1;
-    std::unique_ptr<SmallMockDevice> device(Device::create<SmallMockDevice>(platformDevices[0]));
+    std::unique_ptr<SmallMockDevice> device(MockDevice::createWithNewExecutionEnvironment<SmallMockDevice>(platformDevices[0]));
     auto tagAllocation = device->peekTagAllocation();
     tagAllocation->taskCount = 1;
 }
 
 TEST(DeviceCleanup, givenDeviceWhenItIsDestroyedThenFlushBatchedSubmissionsIsCalled) {
-    auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::create<MockDevice>(nullptr));
+    auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockCommandStreamReceiver *csr = new MockCommandStreamReceiver;
     mockDevice->resetCommandStreamReceiver(csr);
     int flushedBatchedSubmissionsCalledCount = 0;
@@ -149,4 +148,47 @@ TEST(DeviceCleanup, givenDeviceWhenItIsDestroyedThenFlushBatchedSubmissionsIsCal
     mockDevice.reset(nullptr);
 
     EXPECT_EQ(1, flushedBatchedSubmissionsCalledCount);
+}
+
+TEST(DeviceCreation, givenSelectedAubCsrInDebugVarsWhenDeviceIsCreatedThenIsSimulationReturnsTrue) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.SetCommandStreamReceiver.set(CommandStreamReceiverType::CSR_AUB);
+
+    overrideCommandStreamReceiverCreation = true;
+    auto mockDevice = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_TRUE(mockDevice->isSimulation());
+}
+
+TEST(DeviceCreation, givenSelectedTbxCsrInDebugVarsWhenDeviceIsCreatedThenIsSimulationReturnsTrue) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.SetCommandStreamReceiver.set(CommandStreamReceiverType::CSR_TBX);
+
+    overrideCommandStreamReceiverCreation = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_TRUE(device->isSimulation());
+}
+
+TEST(DeviceCreation, givenSelectedTbxWithAubCsrInDebugVarsWhenDeviceIsCreatedThenIsSimulationReturnsTrue) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.SetCommandStreamReceiver.set(CommandStreamReceiverType::CSR_TBX_WITH_AUB);
+
+    overrideCommandStreamReceiverCreation = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_TRUE(device->isSimulation());
+}
+
+TEST(DeviceCreation, givenHwWithAubCsrInDebugVarsWhenDeviceIsCreatedThenIsSimulationReturnsFalse) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.SetCommandStreamReceiver.set(CommandStreamReceiverType::CSR_HW_WITH_AUB);
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_FALSE(device->isSimulation());
+}
+
+TEST(DeviceCreation, givenDefaultHwCsrInDebugVarsWhenDeviceIsCreatedThenIsSimulationReturnsFalse) {
+    int32_t defaultHwCsr = CommandStreamReceiverType::CSR_HW;
+    EXPECT_EQ(defaultHwCsr, DebugManager.flags.SetCommandStreamReceiver.get());
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_FALSE(device->isSimulation());
 }

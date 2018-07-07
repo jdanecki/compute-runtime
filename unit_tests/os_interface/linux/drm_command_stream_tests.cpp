@@ -695,7 +695,7 @@ class DrmCommandStreamEnhancedFixture
     }
 
     bool isResident(BufferObject *bo) {
-        return tCsr->isResident(bo);
+        return tCsr->isResident(bo) && bo->peekIsResident();
     }
 
     const BufferObject *getResident(BufferObject *bo) {
@@ -839,6 +839,8 @@ TEST_F(DrmCommandStreamGemWorkerTests, givenTaskThatRequiresLargeResourceCountWh
     EXPECT_EQ(11u, this->mock->execBuffer.buffer_count);
     mm->freeGraphicsMemory(commandBuffer);
     for (auto graphicsAllocation : graphicsAllocations) {
+        DrmAllocation *drmAlloc = reinterpret_cast<DrmAllocation *>(graphicsAllocation);
+        EXPECT_FALSE(drmAlloc->getBO()->peekIsResident());
         mm->freeGraphicsMemory(graphicsAllocation);
     }
     EXPECT_EQ(11u, execStorage.size());
@@ -859,6 +861,34 @@ TEST_F(DrmCommandStreamGemWorkerTests, givenGemCloseWorkerInactiveModeWhenMakeRe
     EXPECT_EQ(1u, bo->getRefCount());
 
     mm->freeGraphicsMemory(dummyAllocation);
+}
+
+TEST_F(DrmCommandStreamGemWorkerTests, GivenTwoAllocationsWhenBackingStorageIsDifferentThenMakeResidentShouldAddTwoLocations) {
+    auto allocation = mm->allocateGraphicsMemory(1024, 4096);
+    auto allocation2 = mm->allocateGraphicsMemory(1024, 4096);
+
+    auto bo1 = allocation->getBO();
+    auto bo2 = allocation2->getBO();
+    csr->makeResident(*allocation);
+    csr->makeResident(*allocation2);
+
+    EXPECT_FALSE(bo1->peekIsResident());
+    EXPECT_FALSE(bo2->peekIsResident());
+
+    csr->processResidency(nullptr);
+
+    EXPECT_TRUE(bo1->peekIsResident());
+    EXPECT_TRUE(bo2->peekIsResident());
+    EXPECT_EQ(tCsr->getResidencyVector()->size(), 2u);
+
+    csr->makeNonResident(*allocation);
+    csr->makeNonResident(*allocation2);
+    EXPECT_FALSE(bo1->peekIsResident());
+    EXPECT_FALSE(bo2->peekIsResident());
+
+    EXPECT_EQ(tCsr->getResidencyVector()->size(), 0u);
+    mm->freeGraphicsMemory(allocation);
+    mm->freeGraphicsMemory(allocation2);
 }
 
 TEST_F(DrmCommandStreamGemWorkerTests, givenCommandStreamWithDuplicatesWhenItIsFlushedWithGemCloseWorkerInactiveModeThenCsIsNotNulled) {
@@ -1222,7 +1252,7 @@ TEST_F(DrmCommandStreamLeaksTest, givenFragmentedAllocationsWithResuedFragmentsW
 
     EXPECT_EQ(3u, residency->size());
 
-    tCsr->makeSurfacePackNonResident(nullptr);
+    tCsr->makeSurfacePackNonResident(nullptr, false);
 
     //check that each packet is not resident
     EXPECT_FALSE(graphicsAllocation->fragmentsStorage.fragmentStorageData[0].residency->resident);
@@ -1244,7 +1274,7 @@ TEST_F(DrmCommandStreamLeaksTest, givenFragmentedAllocationsWithResuedFragmentsW
 
     EXPECT_EQ(3u, residency->size());
 
-    tCsr->makeSurfacePackNonResident(nullptr);
+    tCsr->makeSurfacePackNonResident(nullptr, false);
 
     EXPECT_EQ(0u, residency->size());
 
@@ -1364,6 +1394,52 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
     EXPECT_EQ(0u, hostPtrManager.getFragmentCount());
 }
 
+TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsTheSameThenMakeResidentShouldAddOnlyOneLocation) {
+    auto ptr = (void *)0x1000;
+    auto size = MemoryConstants::pageSize;
+    auto ptr2 = (void *)0x1000;
+
+    auto allocation = mm->allocateGraphicsMemory(size, ptr);
+    auto allocation2 = mm->allocateGraphicsMemory(size, ptr2);
+
+    csr->makeResident(*allocation);
+    csr->makeResident(*allocation2);
+
+    csr->processResidency(nullptr);
+
+    EXPECT_EQ(tCsr->getResidencyVector()->size(), 1u);
+
+    csr->makeNonResident(*allocation);
+    csr->makeNonResident(*allocation2);
+
+    mm->freeGraphicsMemory(allocation);
+    mm->freeGraphicsMemory(allocation2);
+    mm->clearResidencyAllocations();
+}
+
+TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsDifferentThenMakeResidentShouldAddTwoLocations) {
+    auto ptr = (void *)0x1000;
+    auto size = MemoryConstants::pageSize;
+    auto ptr2 = (void *)0x3000;
+
+    auto allocation = mm->allocateGraphicsMemory(size, ptr);
+    auto allocation2 = mm->allocateGraphicsMemory(size, ptr2);
+
+    csr->makeResident(*allocation);
+    csr->makeResident(*allocation2);
+
+    csr->processResidency(nullptr);
+
+    EXPECT_EQ(tCsr->getResidencyVector()->size(), 2u);
+
+    csr->makeNonResident(*allocation);
+    csr->makeNonResident(*allocation2);
+
+    mm->freeGraphicsMemory(allocation);
+    mm->freeGraphicsMemory(allocation2);
+    mm->clearResidencyAllocations();
+}
+
 TEST_F(DrmCommandStreamLeaksTest, makeResidentSizeZero) {
     std::unique_ptr<BufferObject> buffer(this->createBO(0));
     DrmAllocation allocation(buffer.get(), nullptr, buffer->peekSize());
@@ -1457,7 +1533,7 @@ TEST_F(DrmCommandStreamLeaksTest, FlushMultipleTimes) {
     csr->alignToCacheLine(cs);
     BatchBuffer batchBuffer3{cs.getGraphicsAllocation(), 16, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     csr->flush(batchBuffer3, EngineType::ENGINE_RCS, nullptr);
-    csr->makeSurfacePackNonResident(nullptr);
+    csr->makeSurfacePackNonResident(nullptr, false);
     mm->freeGraphicsMemory(allocation);
     mm->freeGraphicsMemory(allocation2);
 
@@ -1543,7 +1619,7 @@ TEST_F(DrmCommandStreamLeaksTest, MakeResidentClearResidencyAllocationsInMemoryM
     EXPECT_NE(0u, mm->getResidencyAllocations().size());
 
     csr->processResidency(nullptr);
-    csr->makeSurfacePackNonResident(nullptr);
+    csr->makeSurfacePackNonResident(nullptr, false);
     EXPECT_EQ(0u, mm->getResidencyAllocations().size());
 
     mm->freeGraphicsMemory(allocation1);
@@ -1561,7 +1637,7 @@ TEST_F(DrmCommandStreamLeaksTest, givenMultipleMakeResidentWhenMakeNonResidentIs
     EXPECT_NE(0u, mm->getResidencyAllocations().size());
 
     csr->processResidency(nullptr);
-    csr->makeSurfacePackNonResident(nullptr);
+    csr->makeSurfacePackNonResident(nullptr, false);
 
     EXPECT_EQ(0u, mm->getResidencyAllocations().size());
     EXPECT_FALSE(allocation1->isResident());

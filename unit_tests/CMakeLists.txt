@@ -132,6 +132,7 @@ function(neo_copy_test_files target product)
     COMMAND echo copying test files from ${IGDRCL_SOURCE_DIR}/unit_tests/test_files to ${outputdir}/test_files
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${IGDRCL_SOURCE_DIR}/unit_tests/test_files ${outputdir}/test_files
     COMMAND WORKING_DIRECTORY ${TargetDir}
+    DEPENDS ${IGDRCL_SOURCE_DIR}/unit_tests/test_files
   )
   add_dependencies(${target} copy_compiler_files)
   set_target_properties(${target} PROPERTIES FOLDER "${PLATFORM_SPECIFIC_TARGETS_FOLDER}/${product}")
@@ -156,7 +157,11 @@ target_include_directories(igdrcl_tests BEFORE PRIVATE ${IGDRCL_SOURCE_DIR}/unit
 if(WIN32)
   set(cloc_cmd_prefix cloc)
 else()
-  set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:cloc> $<TARGET_FILE:cloc>)
+  if(DEFINED IGDRCL__IGC_LIBRARY_PATH)
+    set(cloc_cmd_prefix LD_LIBRARY_PATH=${IGDRCL__IGC_LIBRARY_PATH} $<TARGET_FILE:cloc>)
+  else()
+    set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:cloc> $<TARGET_FILE:cloc>)
+  endif()
 endif()
 
 function(neo_gen_kernels target platform_name suffix)

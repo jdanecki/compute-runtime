@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,28 +33,15 @@ extern bool getDevicesResult;
 
 struct PlatformNegativeTest : public ::testing::Test {
     void SetUp() override {
-        pPlatform = platform();
+        pPlatform.reset(new Platform());
     }
 
-    Platform *pPlatform = nullptr;
+    std::unique_ptr<Platform> pPlatform;
 };
 
 TEST_F(PlatformNegativeTest, GivenPlatformWhenGetDevicesFailedThenFalseIsReturned) {
-    class PlatformShutdown {
-      public:
-        PlatformShutdown(Platform *pPlatform) : pPlatform(pPlatform) {
-            pPlatform->shutdown();
-        }
-        ~PlatformShutdown() {
-            pPlatform->shutdown();
-        }
-
-      protected:
-        Platform *pPlatform = nullptr;
-    } a(pPlatform);
-
     VariableBackup<decltype(getDevicesResult)> bkp(&getDevicesResult, false);
 
-    auto ret = pPlatform->initialize(numPlatformDevices, platformDevices);
+    auto ret = pPlatform->initialize();
     EXPECT_FALSE(ret);
 }

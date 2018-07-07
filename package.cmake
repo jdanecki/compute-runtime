@@ -19,6 +19,8 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 if(UNIX)
+  include(GNUInstallDirs)
+
   set(package_input_dir ${IGDRCL_BINARY_DIR}/packageinput)
   set(package_output_dir ${IGDRCL_BINARY_DIR}/packages)
 
@@ -43,9 +45,6 @@ if(UNIX)
     set(_dir_etc "/etc")
   endif()
 
-  set(NEO_BINARY_INSTALL_DIR /opt/intel/opencl)
-  set(CMAKE_INSTALL_PREFIX ${NEO_BINARY_INSTALL_DIR})
-
   foreach(TARGET_tmp ${IGDRCL__IGC_TARGETS})
     list(APPEND IGC_TARGET_FILES $<TARGET_FILE:${TARGET_tmp}>)
   endforeach()
@@ -53,14 +52,14 @@ if(UNIX)
   install(FILES
     ${IGDRCL_BINARY_DIR}/bin/libigdrcl.so
     ${IGC_TARGET_FILES}
-    DESTINATION ${NEO_BINARY_INSTALL_DIR}
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
     COMPONENT igdrcl
   )
 
   set(OCL_ICD_RUNTIME_NAME libigdrcl.so)
   install(
-    CODE "file( WRITE ${IGDRCL_BINARY_DIR}/libintelopencl.conf \"/opt/intel/opencl\n\" )"
-    CODE "file( WRITE ${IGDRCL_BINARY_DIR}/intel.icd \"/opt/intel/opencl/${OCL_ICD_RUNTIME_NAME}\n\" )"
+    CODE "file( WRITE ${IGDRCL_BINARY_DIR}/libintelopencl.conf \"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\n\" )"
+    CODE "file( WRITE ${IGDRCL_BINARY_DIR}/intel.icd \"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/${OCL_ICD_RUNTIME_NAME}\n\" )"
     CODE "file( WRITE ${IGDRCL_BINARY_DIR}/postinst \"/sbin/ldconfig\n\" )"
     CODE "file( WRITE ${IGDRCL_BINARY_DIR}/postrm \"/sbin/ldconfig\n\" )"
     COMPONENT igdrcl
@@ -82,7 +81,7 @@ if(UNIX)
   endif()
 
   set(CPACK_SET_DESTDIR TRUE)
-  set(CPACK_PACKAGE_RELOCATABLE FALSE)
+  set(CPACK_PACKAGE_RELOCATABLE TRUE)
   set(CPACK_PACKAGE_NAME "intel-opencl")
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Intel OpenCL GPU driver")
   set(CPACK_PACKAGE_VENDOR "Intel")
@@ -101,7 +100,7 @@ if(UNIX)
   set(CPACK_RPM_PACKAGE_URL "http://01.org/compute-runtime")
   set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${IGDRCL_BINARY_DIR}/postinst")
   set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE "${IGDRCL_BINARY_DIR}/postrm")
-  set(CPACK_PACKAGE_INSTALL_DIRECTORY "/opt/intel/opencl")
+  set(CPACK_PACKAGE_INSTALL_DIRECTORY ${CMAKE_INSTALL_PREFIX})
   set(CPACK_PACKAGE_CONTACT "Intel Corporation")
   set(CPACK_PACKAGE_FILE_NAME "intel-opencl-${NEO_VERSION_MAJOR}.${NEO_VERSION_MINOR}-${NEO_VERSION_BUILD}.${CPACK_RPM_PACKAGE_ARCHITECTURE}")
   set(CPACK_DEB_COMPONENT_INSTALL ON)

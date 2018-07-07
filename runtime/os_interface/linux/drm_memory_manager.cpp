@@ -34,6 +34,7 @@
 #include "drm/i915_drm.h"
 #include "drm/drm.h"
 
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 
@@ -209,7 +210,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemory64kb(size_t size, size_t 
 }
 
 GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) {
-    if (!Gmm::allowTiling(*imgInfo.imgDesc)) {
+    if (!GmmHelper::allowTiling(*imgInfo.imgDesc)) {
         auto alloc = allocateGraphicsMemory(imgInfo.size, MemoryConstants::preferredAlignment);
         if (alloc) {
             alloc->gmm = gmm;
@@ -249,7 +250,7 @@ GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &
 
 DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *ptr, AllocationOrigin allocationOrigin) {
     auto allocatorToUse = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? allocator32Bit.get() : internal32bitAllocator.get();
-    auto allocationType = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? BIT32_ALLOCATOR_EXTERNAL : BIT32_ALLOCATOR_INTERNAL;
+    auto allocatorType = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? BIT32_ALLOCATOR_EXTERNAL : BIT32_ALLOCATOR_INTERNAL;
 
     if (ptr) {
         uintptr_t inputPtr = (uintptr_t)ptr;
@@ -273,7 +274,7 @@ DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *
         bo->address = reinterpret_cast<void *>(gpuVirtualAddress);
         uintptr_t offset = (uintptr_t)bo->address;
         bo->softPin((uint64_t)offset);
-        bo->setAllocationType(allocationType);
+        bo->setAllocationType(allocatorType);
         auto drmAllocation = new DrmAllocation(bo, (void *)ptr, (uint64_t)ptrOffset(gpuVirtualAddress, inputPointerOffset), allocationSize);
         drmAllocation->is32BitAllocation = true;
         drmAllocation->gpuBaseAddress = allocatorToUse->getBase();
@@ -304,7 +305,7 @@ DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *
     bo->isAllocated = true;
     bo->setUnmapSize(allocationSize);
 
-    bo->setAllocationType(allocationType);
+    bo->setAllocationType(allocatorType);
 
     auto drmAllocation = new DrmAllocation(bo, reinterpret_cast<void *>(res), alignedAllocationSize);
     drmAllocation->is32BitAllocation = true;
@@ -410,6 +411,28 @@ GraphicsAllocation *DrmMemoryManager::createPaddedAllocation(GraphicsAllocation 
     bo->setUnmapSize(sizeWithPadding);
     bo->setAllocationType(MMAP_ALLOCATOR);
     return new DrmAllocation(bo, (void *)srcPtr, (uint64_t)ptrOffset(gpuRange, offset), sizeWithPadding);
+}
+
+void DrmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    DrmAllocation *drmMemory = static_cast<DrmAllocation *>(gfxAllocation);
+    FragmentStorage fragment = {};
+    fragment.driverAllocation = true;
+    fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
+    fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
+    fragment.osInternalStorage = new OsHandle();
+    fragment.osInternalStorage->bo = drmMemory->getBO();
+    hostPtrManager.storeFragment(fragment);
+}
+
+void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    auto buffer = gfxAllocation->getUnderlyingBuffer();
+    auto fragment = hostPtrManager.getFragment(buffer);
+    if (fragment && fragment->driverAllocation) {
+        OsHandle *osStorageToRelease = fragment->osInternalStorage;
+        if (hostPtrManager.releaseHostPtr(buffer)) {
+            delete osStorageToRelease;
+        }
+    }
 }
 
 void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {

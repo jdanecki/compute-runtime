@@ -20,7 +20,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "compiler.config.h"
+#include "igc.opencl.h"
 #include "runtime/os_interface/os_library.h"
 
 namespace Os {
@@ -31,4 +31,4 @@ const char *libvaDllName = "libva.so.2";
 
 const char *sysFsPciPath = "/sys/bus/pci/devices/";
 const char *tbxLibName = "libtbxAccess.so";
-}
+} // namespace Os

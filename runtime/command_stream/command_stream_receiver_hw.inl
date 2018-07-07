@@ -149,6 +149,13 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     void *epiloguePipeControlLocation = nullptr;
     Device *device = this->getMemoryManager()->device;
 
+    if (DebugManager.flags.ForceCsrFlushing.get()) {
+        flushBatchedSubmissions();
+    }
+    if (DebugManager.flags.ForceCsrReprogramming.get()) {
+        initProgrammingFlags();
+    }
+
     if (dispatchFlags.blocking || dispatchFlags.dcFlush || dispatchFlags.guardCommandBufferWithPipeControl) {
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
             //for ImmediateDispatch we will send this right away, therefore this pipe control will close the level
@@ -221,7 +228,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     csrSizeRequestFlags.preemptionRequestChanged = this->lastPreemptionMode != dispatchFlags.preemptionMode;
     csrSizeRequestFlags.mediaSamplerConfigChanged = this->lastMediaSamplerConfig != static_cast<int8_t>(dispatchFlags.mediaSamplerRequired);
 
-    size_t requiredScratchSizeInBytes = requiredScratchSize * (hwInfo.pSysInfo->MaxSubSlicesSupported * hwInfo.pSysInfo->MaxEuPerSubSlice * hwInfo.pSysInfo->ThreadCount / hwInfo.pSysInfo->EUCount);
+    size_t requiredScratchSizeInBytes = requiredScratchSize * device->getDeviceInfo().computeUnitsUsedForScratch;
 
     auto force32BitAllocations = getMemoryManager()->peekForce32BitAllocations();
 
@@ -404,7 +411,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
             flushStamp->setStamp(this->flush(batchBuffer, engineType, nullptr));
             this->latestFlushedTaskCount = this->taskCount + 1;
-            this->makeSurfacePackNonResident(nullptr);
+            this->makeSurfacePackNonResident(nullptr, dispatchFlags.blocking);
         } else {
             auto commandBuffer = new CommandBuffer;
             commandBuffer->batchBuffer = batchBuffer;
@@ -417,7 +424,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             this->submissionAggregator->recordCommandBuffer(commandBuffer);
         }
     } else {
-        this->makeSurfacePackNonResident(nullptr);
+        this->makeSurfacePackNonResident(nullptr, false);
     }
 
     //check if we are not over the budget, if we are do implicit flush
@@ -531,7 +538,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 
             this->latestFlushedTaskCount = lastTaskCount;
             this->flushStamp->setStamp(flushStamp);
-            this->makeSurfacePackNonResident(&surfacesForSubmit);
+            this->makeSurfacePackNonResident(&surfacesForSubmit, false);
             resourcePackage.clear();
         }
         this->totalMemoryUsed = 0;
@@ -731,5 +738,4 @@ void CommandStreamReceiverHw<GfxFamily>::resetKmdNotifyHelper(KmdNotifyHelper *n
 template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::addClearSLMWorkAround(typename GfxFamily::PIPE_CONTROL *pCmd) {
 }
-
 } // namespace OCLRT

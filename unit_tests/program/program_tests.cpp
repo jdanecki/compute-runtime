@@ -55,6 +55,7 @@
 using namespace OCLRT;
 
 void ProgramTests::SetUp() {
+    constructPlatform();
     DeviceFixture::SetUp();
     cl_device_id device = pDevice;
     ContextFixture::SetUp(1, &device);
@@ -62,6 +63,7 @@ void ProgramTests::SetUp() {
 void ProgramTests::TearDown() {
     ContextFixture::TearDown();
     DeviceFixture::TearDown();
+    platformImpl.reset(nullptr);
 }
 
 void CL_CALLBACK notifyFunc(
@@ -371,7 +373,7 @@ TEST_P(ProgramFromBinaryTest, GetBuildInfo_Status) {
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(param_value_size, param_value_size_ret);
-    EXPECT_EQ(CL_BUILD_SUCCESS, buildStatus);
+    EXPECT_EQ(CL_BUILD_NONE, buildStatus);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1415,7 +1417,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     EXPECT_EQ(*pDst, reinterpret_cast<uintptr_t>(constBuffGpuAddr));
 
     pKernel->updateWithCompletionStamp(*pCommandStreamReceiver, nullptr);
-    pCommandStreamReceiver->makeSurfacePackNonResident(nullptr);
+    pCommandStreamReceiver->makeSurfacePackNonResident(nullptr, false);
     EXPECT_EQ(0u, pCommandStreamReceiver->residency.size());
 
     std::vector<Surface *> surfaces;
@@ -2938,4 +2940,20 @@ TEST(SimpleProgramTests, givenDefaultProgramWhenSetDeviceIsCalledThenDeviceIsSet
     EXPECT_EQ(dummyDevice, pProgram.getDevicePtr());
     pProgram.SetDevice(nullptr);
     EXPECT_EQ(nullptr, pProgram.getDevicePtr());
+}
+
+TEST(ProgramDestructionTests, givenProgramUsingDeviceWhenItIsDestroyedAfterPlatfromCleanupThenItIsCleanedUpProperly) {
+    constructPlatform();
+    platformImpl->initialize();
+    auto device = platformImpl->getDevice(0);
+    MockContext *context = new MockContext(device, false);
+    MockProgram *pProgram = new MockProgram(context, false);
+    auto globalAllocation = device->getMemoryManager()->allocateGraphicsMemory(MemoryConstants::pageSize);
+    pProgram->setGlobalSurface(globalAllocation);
+
+    platformImpl.reset(nullptr);
+    EXPECT_EQ(1, device->getRefInternalCount());
+    EXPECT_EQ(1, pProgram->getRefInternalCount());
+    context->decRefInternal();
+    pProgram->decRefInternal();
 }

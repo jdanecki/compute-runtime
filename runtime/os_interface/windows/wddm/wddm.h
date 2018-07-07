@@ -31,7 +31,6 @@
 #include "runtime/memory_manager/host_ptr_defines.h"
 #include "runtime/utilities/debug_settings_reader.h"
 #include "runtime/gmm_helper/gmm_lib.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "gmm_memory.h"
 #include <memory>
@@ -49,10 +48,10 @@ struct FeatureTable;
 struct WorkaroundTable;
 struct KmDafListener;
 
-namespace WddmInterfaceVersion {
-constexpr uint32_t Wddm20 = 20;
-constexpr uint32_t Wddm23 = 23;
-} // namespace WddmInterfaceVersion
+enum class WddmInterfaceVersion {
+    Wddm20 = 20,
+    Wddm23 = 23,
+};
 
 class Wddm {
   public:
@@ -63,9 +62,9 @@ class Wddm {
 
     virtual ~Wddm();
 
-    static Wddm *createWddm(uint32_t interfaceVersion);
-
-    static bool enumAdapters(unsigned int devNum, HardwareInfo &outHardwareInfo);
+    static Wddm *createWddm(WddmInterfaceVersion interfaceVersion);
+    static WddmInterfaceVersion pickWddmInterfaceVersion(const HardwareInfo &hwInfo);
+    static bool enumAdapters(HardwareInfo &outHardwareInfo);
 
     MOCKABLE_VIRTUAL bool evict(D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
     MOCKABLE_VIRTUAL bool makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
@@ -212,8 +211,6 @@ class Wddm {
     void getDeviceState();
     void handleCompletion();
     unsigned int readEnablePreemptionRegKey();
-    bool initGmmContext();
-    void destroyGmmContext();
     void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
     virtual const bool hwQueuesSupported() const { return false; }
 

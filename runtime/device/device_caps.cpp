@@ -40,7 +40,6 @@
 namespace OCLRT {
 extern const char *familyName[];
 
-static std::string name(128, '\0');
 static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
@@ -50,6 +49,13 @@ static const char *spirvVersion = "SPIR-V_1.0 ";
 static std::string driverVersion = TOSTR(NEO_DRIVER_VERSION);
 
 const char *builtInKernels = ""; // the "always available" (extension-independent) builtin kernels
+
+static constexpr cl_device_fp_config defaultFpFlags = static_cast<cl_device_fp_config>(CL_FP_ROUND_TO_NEAREST |
+                                                                                       CL_FP_ROUND_TO_ZERO |
+                                                                                       CL_FP_ROUND_TO_INF |
+                                                                                       CL_FP_INF_NAN |
+                                                                                       CL_FP_DENORM |
+                                                                                       CL_FP_FMA);
 
 bool Device::getEnabled64kbPages() {
     if (DebugManager.flags.Enable64kbpages.get() == -1) {
@@ -61,6 +67,29 @@ bool Device::getEnabled64kbPages() {
     }
 };
 
+void Device::setupFp64Flags() {
+    if (DebugManager.flags.OverrideDefaultFP64Settings.get() == -1) {
+        if (hwInfo.capabilityTable.ftrSupportsFP64) {
+            deviceExtensions += "cl_khr_fp64 ";
+        }
+
+        deviceInfo.singleFpConfig = static_cast<cl_device_fp_config>(
+            hwInfo.capabilityTable.ftrSupports64BitMath
+                ? CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT
+                : 0);
+
+        deviceInfo.doubleFpConfig = hwInfo.capabilityTable.ftrSupportsFP64
+                                        ? defaultFpFlags
+                                        : 0;
+    } else {
+        if (DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
+            deviceExtensions += "cl_khr_fp64 ";
+            deviceInfo.singleFpConfig = static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+            deviceInfo.doubleFpConfig = defaultFpFlags;
+        }
+    }
+}
+
 void Device::initializeCaps() {
     deviceExtensions.clear();
     deviceExtensions.append(deviceExtensionsList);
@@ -69,17 +98,15 @@ void Device::initializeCaps() {
     if (is32bit) {
         addressing32bitAllowed = false;
     }
-    std::string tempName = "Intel(R) ";
-    tempName += familyName[hwInfo.pPlatform->eRenderCoreFamily];
-    tempName += " HD Graphics NEO";
-
-    DEBUG_BREAK_IF(tempName.size() > name.size());
-    name = tempName;
 
     driverVersion = TOSTR(NEO_DRIVER_VERSION);
 
+    name += "Intel(R) ";
+    name += familyName[hwInfo.pPlatform->eRenderCoreFamily];
+    name += " HD Graphics NEO";
+
     if (driverInfo) {
-        name.assign(driverInfo.get()->getDeviceName(tempName).c_str());
+        name.assign(driverInfo.get()->getDeviceName(name).c_str());
         driverVersion.assign(driverInfo.get()->getVersion(driverVersion).c_str());
     }
 
@@ -89,6 +116,8 @@ void Device::initializeCaps() {
 
     deviceInfo.name = name.c_str();
     deviceInfo.driverVersion = driverVersion.c_str();
+
+    setupFp64Flags();
 
     deviceInfo.vendor = vendor.c_str();
     deviceInfo.profile = profile.c_str();
@@ -129,10 +158,6 @@ void Device::initializeCaps() {
 
     if (enabledClVersion >= 20) {
         deviceExtensions += "cl_khr_mipmap_image cl_khr_mipmap_image_writes ";
-    }
-
-    if (hwInfo.capabilityTable.ftrSupportsFP64) {
-        deviceExtensions += "cl_khr_fp64 ";
     }
 
     if (DebugManager.flags.EnableNV12.get()) {
@@ -231,9 +256,8 @@ void Device::initializeCaps() {
 
     // OpenCL 1.2 requires 128MB minimum
     auto maxMemAllocSize = std::max((uint64_t)(deviceInfo.globalMemSize / 2), (uint64_t)(128 * MB));
-    //With statefull messages we have an allocation cap of 4GB
-    //Reason to subtract 8KB is that driver may pad the buffer with addition pages for over fetching..
-    deviceInfo.maxMemAllocSize = std::min((uint64_t)((4 * GB) - (8 * KB)), maxMemAllocSize);
+    deviceInfo.maxMemAllocSize = std::min(maxMemAllocSize, hwCaps.maxMemAllocSize);
+
     deviceInfo.maxConstantBufferSize = deviceInfo.maxMemAllocSize;
 
     static const int maxPixelSize = 16;
@@ -247,20 +271,16 @@ void Device::initializeCaps() {
     deviceInfo.numThreadsPerEU = 0;
     auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 32 : 8;
 
-    if (systemInfo.EUCount > 0) {
-        deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.pSkuTable->ftrPooledEuEnabled == 0)
-                                              ? (systemInfo.EUCount / systemInfo.SubSliceCount)
-                                              : systemInfo.EuCountPerPoolMin;
-        deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
-        auto maxWkgSize = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 1024u : 256u;
-        auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
+    deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.pSkuTable->ftrPooledEuEnabled == 0)
+                                          ? (systemInfo.EUCount / systemInfo.SubSliceCount)
+                                          : systemInfo.EuCountPerPoolMin;
+    deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
+    auto maxWkgSize = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 1024u : 256u;
+    auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
 
-        maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
-        deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), maxWkgSize);
-    } else {
-        //default value if systemInfo not provided
-        deviceInfo.maxWorkGroupSize = 128;
-    }
+    maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
+    deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), maxWkgSize);
+
     DEBUG_BREAK_IF(!DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() && deviceInfo.maxWorkGroupSize > 256);
 
     // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
@@ -271,33 +291,10 @@ void Device::initializeCaps() {
     deviceInfo.maxWorkItemSizes[2] = deviceInfo.maxWorkGroupSize;
     deviceInfo.maxSamplers = 16;
 
-    deviceInfo.singleFpConfig = CL_FP_ROUND_TO_NEAREST |
-                                CL_FP_ROUND_TO_ZERO |
-                                CL_FP_ROUND_TO_INF |
-                                CL_FP_INF_NAN |
-                                CL_FP_FMA |
-                                CL_FP_DENORM;
+    deviceInfo.singleFpConfig |= defaultFpFlags;
 
-    deviceInfo.singleFpConfig |= static_cast<cl_device_fp_config>(
-        hwInfo.capabilityTable.ftrSupports64BitMath
-            ? CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT
-            : 0);
+    deviceInfo.halfFpConfig = defaultFpFlags;
 
-    deviceInfo.halfFpConfig = CL_FP_ROUND_TO_NEAREST |
-                              CL_FP_ROUND_TO_ZERO |
-                              CL_FP_ROUND_TO_INF |
-                              CL_FP_INF_NAN |
-                              CL_FP_DENORM |
-                              CL_FP_FMA;
-
-    deviceInfo.doubleFpConfig = hwInfo.capabilityTable.ftrSupportsFP64
-                                    ? CL_FP_ROUND_TO_NEAREST |
-                                          CL_FP_ROUND_TO_ZERO |
-                                          CL_FP_ROUND_TO_INF |
-                                          CL_FP_INF_NAN |
-                                          CL_FP_DENORM |
-                                          CL_FP_FMA
-                                    : 0;
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "hwInfo: {%d, %d}: (%d, %d, %d)\n",
                      systemInfo.EUCount,
                      systemInfo.ThreadCount,
@@ -305,9 +302,7 @@ void Device::initializeCaps() {
                      systemInfo.MaxSlicesSupported,
                      systemInfo.MaxSubSlicesSupported);
 
-    if (systemInfo.EUCount > 0) {
-        deviceInfo.computeUnitsUsedForScratch = systemInfo.MaxSubSlicesSupported * systemInfo.MaxEuPerSubSlice * systemInfo.ThreadCount / systemInfo.EUCount;
-    }
+    deviceInfo.computeUnitsUsedForScratch = hwHelper.getComputeUnitsUsedForScratch(&hwInfo);
 
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", deviceInfo.computeUnitsUsedForScratch);
 

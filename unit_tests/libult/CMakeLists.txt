@@ -18,20 +18,15 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-macro(macro_for_each_platform)
-  list (APPEND IGDRCL_SRCS_ENABLE_TESTED_HW
-    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_${PLATFORM_IT_LOWER}.cpp
-    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_hw_info_config_${PLATFORM_IT_LOWER}.cpp
-  )
-endmacro()
 macro(macro_for_each_gen)
   list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW
     ${IGDRCL_SOURCE_DIR}/unit_tests/${GEN_TYPE_LOWER}/cmd_parse_${GEN_TYPE_LOWER}.cpp
     ${IGDRCL_SOURCE_DIR}/unit_tests/${GEN_TYPE_LOWER}/gen_cmd_parse.h
     ${IGDRCL_SOURCE_DIR}/unit_tests/libult/${GEN_TYPE_LOWER}.cpp
     ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_family_full_${GEN_TYPE_LOWER}.cpp
+    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_hw_info_config_${GEN_TYPE_LOWER}.cpp
+    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_${GEN_TYPE_LOWER}.cpp
   )
-  apply_macro_for_each_platform()
 endmacro()
 
 apply_macro_for_each_gen("TESTED")
@@ -105,6 +100,8 @@ set(IGDRCL_SRCS_LIB_ULT_ENV
   ${IGDRCL_SOURCE_DIR}/unit_tests/helpers/kernel_binary_helper.h
   ${IGDRCL_SOURCE_DIR}/unit_tests/indirect_heap/indirect_heap_fixture.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/indirect_heap/indirect_heap_fixture.h
+  ${IGDRCL_SOURCE_DIR}/unit_tests/ult_config_listener.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/ult_config_listener.h
 )
 add_library (igdrcl_libult_env OBJECT
   ${IGDRCL_SRCS_LIB_ULT_ENV}

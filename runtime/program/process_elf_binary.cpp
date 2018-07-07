@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -138,7 +138,6 @@ cl_int Program::processElfBinary(
 
     if (retVal == CL_SUCCESS) {
         isProgramBinaryResolved = true;
-        buildStatus = CL_BUILD_SUCCESS;
 
         // Create an empty build log since program is effectively built
         updateBuildLog(pDevice, "", 1);
@@ -264,4 +263,4 @@ cl_int Program::resolveProgramBinary() {
     }
     return retVal;
 }
-}
+} // namespace OCLRT

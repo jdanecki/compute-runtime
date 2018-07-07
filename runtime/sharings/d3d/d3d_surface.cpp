@@ -27,6 +27,7 @@
 #include "runtime/helpers/get_info.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "mmsystem.h"
 
 using namespace OCLRT;
@@ -81,7 +82,7 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
         return nullptr;
     }
 
-    imgInfo.plane = Gmm::convertPlane(oclPlane);
+    imgInfo.plane = GmmHelper::convertPlane(oclPlane);
     imgInfo.surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imgFormat);
 
     bool isSharedResource = false;
@@ -90,7 +91,7 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
     GraphicsAllocation *alloc = nullptr;
     if (surfaceInfo->shared_handle) {
         isSharedResource = true;
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)surfaceInfo->shared_handle), false);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)surfaceInfo->shared_handle), false, false);
         updateImgInfo(alloc->gmm, imgInfo, imgDesc, oclPlane, 0u);
     } else {
         lockable = !(surfaceDesc.Usage & D3DResourceFlags::USAGE_RENDERTARGET) || oclPlane != OCLPlane::NO_PLANE;
@@ -101,7 +102,7 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
             imgDesc.image_width /= 2;
             imgDesc.image_height /= 2;
         }
-        Gmm *gmm = Gmm::createGmmAndQueryImgParams(imgInfo, context->getDevice(0)->getHardwareInfo());
+        Gmm *gmm = new Gmm(imgInfo);
         imgDesc.image_row_pitch = imgInfo.rowPitch;
         imgDesc.image_slice_pitch = imgInfo.slicePitch;
 

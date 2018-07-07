@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -35,9 +35,9 @@ class SettingsReader {
         if (readerImpl != nullptr)
             return readerImpl;
 
-        return createOsReader();
+        return createOsReader(false);
     }
-    static SettingsReader *createOsReader();
+    static SettingsReader *createOsReader(bool userScope);
     static SettingsReader *createFileReader();
     virtual int32_t getSetting(const char *settingName, int32_t defaultValue) = 0;
     virtual bool getSetting(const char *settingName, bool defaultValue) = 0;
@@ -45,4 +45,4 @@ class SettingsReader {
 
     static const char *settingsFileName;
 };
-};
+}; // namespace OCLRT

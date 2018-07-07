@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -31,6 +31,7 @@ int vaGetLibFuncCalled = 0;
 int vaExtGetSurfaceHandleCalled = 0;
 osHandle acquiredVaHandle = 0;
 VAImage mockVaImage = {};
+uint16_t vaSharingFunctionsMockWidth, vaSharingFunctionsMockHeight;
 
 void VASharingFunctionsMock::initMembers() {
     vaDisplayIsValidPFN = mockVaDisplayIsValid;
@@ -50,5 +51,7 @@ void VASharingFunctionsMock::initMembers() {
     mockVaImage = {};
 
     acquiredVaHandle = 0;
+    vaSharingFunctionsMockWidth = 256u;
+    vaSharingFunctionsMockHeight = 256u;
 }
-}
+} // namespace OCLRT

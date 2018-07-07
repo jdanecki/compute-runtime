@@ -27,6 +27,7 @@
 #include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/address_patch.h"
+#include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/command_stream/csr_definitions.h"
@@ -71,10 +72,11 @@ class CommandStreamReceiver {
     virtual void makeCoherent(GraphicsAllocation &gfxAllocation){};
     virtual void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
-    void makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency);
+    void makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency, bool blocking);
     virtual void processResidency(ResidencyContainer *allocationsForResidency) {}
     virtual void processEviction();
     void makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation);
+    virtual void waitBeforeMakingNonResidentWhenRequired(bool blocking) {}
 
     virtual void addPipeControl(LinearStream &commandStream, bool dcFlush) = 0;
 
@@ -129,9 +131,14 @@ class CommandStreamReceiver {
     FlatBatchBufferHelper &getFlatBatchBufferHelper() { return *flatBatchBufferHelper.get(); }
     void overwriteFlatBatchBufferHelper(FlatBatchBufferHelper *newHelper) { flatBatchBufferHelper.reset(newHelper); }
 
+    MOCKABLE_VIRTUAL void initProgrammingFlags();
+    virtual void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo);
+
     IndirectHeap &getIndirectHeap(IndirectHeap::Type heapType, size_t minRequiredSize);
     void allocateHeapMemory(IndirectHeap::Type heapType, size_t minRequiredSize, IndirectHeap *&indirectHeap);
     void releaseIndirectHeap(IndirectHeap::Type heapType);
+
+    virtual enum CommandStreamReceiverType getType() = 0;
 
   protected:
     void setDisableL3Cache(bool val) {
@@ -160,7 +167,7 @@ class CommandStreamReceiver {
     int8_t lastSentCoherencyRequest = -1;
     int8_t lastMediaSamplerConfig = -1;
     PreemptionMode lastPreemptionMode = PreemptionMode::Initial;
-    uint32_t latestSentStatelessMocsConfig;
+    uint32_t latestSentStatelessMocsConfig = 0;
 
     LinearStream commandStream;
 

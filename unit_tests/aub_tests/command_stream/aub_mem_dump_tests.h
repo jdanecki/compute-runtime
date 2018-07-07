@@ -53,7 +53,8 @@ void setupAUB(const OCLRT::Device *pDevice, OCLRT::EngineType engineType) {
     aubFile.fileHandle.open(filePath.c_str(), std::ofstream::binary);
 
     // Header
-    aubFile.init(AubMemDump::SteppingValues::A, AUB::Traits::device);
+    auto deviceId = pDevice->getHardwareInfo().capabilityTable.aubDeviceId;
+    aubFile.init(AubMemDump::SteppingValues::A, deviceId);
 
     aubFile.writeMMIO(mmioBase + 0x229c, 0xffff8280);
 
@@ -62,7 +63,7 @@ void setupAUB(const OCLRT::Device *pDevice, OCLRT::EngineType engineType) {
     auto pGlobalHWStatusPage = alignedMalloc(sizeHWSP, alignHWSP);
 
     uint32_t ggttGlobalHardwareStatusPage = (uint32_t)((uintptr_t)pGlobalHWStatusPage);
-    AubGTTData data = {true, true, true};
+    AubGTTData data = {true, false};
     AUB::reserveAddressGGTT(aubFile, ggttGlobalHardwareStatusPage, sizeHWSP, physAddress, data);
     physAddress += sizeHWSP;
 

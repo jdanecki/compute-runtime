@@ -25,6 +25,7 @@
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "CL/cl_ext.h"
 #include "runtime/device/device.h"
+#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
@@ -38,18 +39,38 @@
 
 namespace OCLRT {
 
-Platform platformImpl;
+std::unique_ptr<Platform> platformImpl;
+
 bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned);
 
-Platform *platform() { return &platformImpl; }
+Platform *platform() { return platformImpl.get(); }
+
+Platform *constructPlatform() {
+    static std::mutex mutex;
+    std::unique_lock<std::mutex> lock(mutex);
+    if (!platformImpl) {
+        platformImpl.reset(new Platform());
+    }
+    return platformImpl.get();
+}
 
 Platform::Platform() {
-    devices.reserve(64);
+    devices.reserve(4);
     setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(new AsyncEventsHandler()));
+    executionEnvironment = new ExecutionEnvironment;
+    executionEnvironment->incRefInternal();
 }
 
 Platform::~Platform() {
-    shutdown();
+    asyncEventsHandler->closeThread();
+    for (auto dev : this->devices) {
+        if (dev) {
+            dev->decRefInternal();
+        }
+    }
+
+    gtpinNotifyPlatformShutdown();
+    executionEnvironment->decRefInternal();
 }
 
 cl_int Platform::getInfo(cl_platform_info paramName,
@@ -106,11 +127,9 @@ const std::string &Platform::peekCompilerExtensions() const {
     return compilerExtensions;
 }
 
-bool Platform::initialize(size_t numDevices,
-                          const HardwareInfo **devices) {
+bool Platform::initialize() {
     HardwareInfo *hwInfo = nullptr;
     size_t numDevicesReturned = 0;
-    const HardwareInfo **hwInfoConst = nullptr;
 
     TakeOwnershipWrapper<Platform> platformOwnership(*this);
 
@@ -124,15 +143,12 @@ bool Platform::initialize(size_t numDevices,
         return false;
     }
 
-    hwInfoConst = (hwInfo != nullptr) ? const_cast<const HardwareInfo **>(&hwInfo) : devices;
-    numDevicesReturned = (hwInfo != nullptr) ? numDevicesReturned : numDevices;
-
     DEBUG_BREAK_IF(this->platformInfo);
-    this->platformInfo = new PlatformInfo;
+    this->platformInfo.reset(new PlatformInfo);
 
     this->devices.resize(numDevicesReturned);
     for (size_t deviceOrdinal = 0; deviceOrdinal < numDevicesReturned; ++deviceOrdinal) {
-        auto pDevice = Device::create<OCLRT::Device>(hwInfoConst[deviceOrdinal]);
+        auto pDevice = Device::create<OCLRT::Device>(&hwInfo[deviceOrdinal], executionEnvironment);
         DEBUG_BREAK_IF(!pDevice);
         if (pDevice) {
             this->devices[deviceOrdinal] = pDevice;
@@ -171,29 +187,6 @@ bool Platform::isInitialized() {
     TakeOwnershipWrapper<Platform> platformOwnership(*this);
     bool ret = (this->state == StateInited);
     return ret;
-}
-
-void Platform::shutdown() {
-    asyncEventsHandler->closeThread();
-    TakeOwnershipWrapper<Platform> platformOwnership(*this);
-
-    if (state == StateNone) {
-        return;
-    }
-
-    for (auto dev : this->devices) {
-        delete dev;
-    }
-    devices.clear();
-    state = StateNone;
-
-    delete platformInfo;
-    platformInfo = nullptr;
-
-    DeviceFactory::releaseDevices();
-    std::string().swap(compilerExtensions);
-
-    gtpinNotifyPlatformShutdown();
 }
 
 Device *Platform::getDevice(size_t deviceOrdinal) {

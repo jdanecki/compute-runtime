@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -47,7 +47,6 @@ class Timer::TimerImpl {
     }
 
     long long int get() {
-        long long int nanosecondTime = 0;
         auto timeDelta = (double)(m_endTime.QuadPart - m_startTime.QuadPart);
         timeDelta /= (double)mFrequency.QuadPart;
         timeDelta *= 1000000000.0;
@@ -124,4 +123,4 @@ Timer &Timer::operator=(const Timer &t) {
 void Timer::setFreq() {
     TimerImpl::setFreq();
 }
-};
+}; // namespace OCLRT

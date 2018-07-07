@@ -63,6 +63,20 @@ HWTEST_F(CommandStreamReceiverTest, testCtor) {
     EXPECT_FALSE(csr.isPreambleSent);
 }
 
+HWTEST_F(CommandStreamReceiverTest, testInitProgrammingFlags) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.initProgrammingFlags();
+    EXPECT_FALSE(csr.isPreambleProgrammed());
+    EXPECT_FALSE(csr.isGSBAFor32BitProgrammed());
+    EXPECT_TRUE(csr.isMediaVfeStateDirty());
+    EXPECT_FALSE(csr.isLastVmeSubslicesConfig());
+    EXPECT_EQ(0u, csr.getLastSentL3Config());
+    EXPECT_EQ(-1, csr.getLastSentCoherencyRequest());
+    EXPECT_EQ(-1, csr.getLastMediaSamplerConfig());
+    EXPECT_EQ(PreemptionMode::Initial, csr.getLastPreemptionMode());
+    EXPECT_EQ(0u, csr.getLatestSentStatelessMocsConfig());
+}
+
 TEST_F(CommandStreamReceiverTest, makeResident_setsBufferResidencyFlag) {
     MockContext context;
     float srcMemory[] = {1.0f};
@@ -128,7 +142,7 @@ TEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenGetCSIsCalledThe
     auto commandStreamAllocation = commandStream.getGraphicsAllocation();
     ASSERT_NE(nullptr, commandStreamAllocation);
 
-    EXPECT_EQ(GraphicsAllocation::ALLOCATION_TYPE_LINEAR_STREAM, commandStreamAllocation->getAllocationType());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::LINEAR_STREAM, commandStreamAllocation->getAllocationType());
 }
 
 TEST_F(CommandStreamReceiverTest, createAllocationAndHandleResidency) {
@@ -294,4 +308,15 @@ TEST(CommandStreamReceiverSimpleTest, givenCSRWithTagAllocationSetWhenGetTagAllo
     GraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
     csr.setTagAllocation(&allocation);
     EXPECT_EQ(&allocation, csr.getTagAllocation());
+}
+
+TEST(CommandStreamReceiverSimpleTest, givenCSRWhenWaitBeforeMakingNonResidentWhenRequiredIsCalledWithBlockingFlagSetThenItReturnsImmediately) {
+    MockCommandStreamReceiver csr;
+    uint32_t tag = 0;
+    GraphicsAllocation allocation(&tag, sizeof(tag));
+    csr.latestFlushedTaskCount = 3;
+    csr.setTagAllocation(&allocation);
+    csr.waitBeforeMakingNonResidentWhenRequired(true);
+
+    EXPECT_EQ(0u, tag);
 }

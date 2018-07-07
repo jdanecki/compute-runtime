@@ -57,12 +57,12 @@ struct HelloWorldFixture : public FixtureFactory::IndirectHeapFixture,
     typedef typename FixtureFactory::KernelFixture KernelFixture;
 
     using CommandQueueFixture::pCmdQ;
-    using CommandStreamFixture::pCS;
-    using KernelFixture::pKernel;
-    using IndirectHeapFixture::SetUp;
-    using HelloWorldKernelFixture::SetUp;
-    using CommandStreamFixture::SetUp;
     using CommandQueueFixture::SetUp;
+    using CommandStreamFixture::pCS;
+    using CommandStreamFixture::SetUp;
+    using HelloWorldKernelFixture::SetUp;
+    using IndirectHeapFixture::SetUp;
+    using KernelFixture::pKernel;
 
     HelloWorldFixture() : pSrcMemory(nullptr),
                           pDestMemory(nullptr),
@@ -73,6 +73,7 @@ struct HelloWorldFixture : public FixtureFactory::IndirectHeapFixture,
 
   public:
     virtual void SetUp() {
+        constructPlatform();
         DeviceFixture::SetUp();
         ASSERT_NE(nullptr, pDevice);
         CommandQueueFixture::SetUp(pDevice, 0);
@@ -106,6 +107,7 @@ struct HelloWorldFixture : public FixtureFactory::IndirectHeapFixture,
         CommandQueueFixture::TearDown();
         delete BufferDefaults::context;
         DeviceFixture::TearDown();
+        platformImpl.reset(nullptr);
     }
 
     void *pSrcMemory;
@@ -140,4 +142,4 @@ struct HelloWorldTest : Test<HelloWorldFixture<FixtureFactory>> {
 template <typename FixtureFactory>
 struct HelloWorldTestWithParam : HelloWorldFixture<FixtureFactory> {
 };
-}
+} // namespace OCLRT

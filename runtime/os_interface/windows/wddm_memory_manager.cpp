@@ -24,6 +24,7 @@
 #include "runtime/device/device.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/ptr_math.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/surface_formats.h"
@@ -60,7 +61,7 @@ void APIENTRY WddmMemoryManager::trimCallback(_Inout_ D3DKMT_TRIMNOTIFICATION *t
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) {
-    if (!Gmm::allowTiling(*imgInfo.imgDesc) && imgInfo.mipCount == 0) {
+    if (!GmmHelper::allowTiling(*imgInfo.imgDesc) && imgInfo.mipCount == 0) {
         delete gmm;
         return allocateGraphicsMemory(imgInfo.size, MemoryConstants::preferredAlignment);
     }
@@ -80,7 +81,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(size_t size, s
 
     auto wddmAllocation = new WddmAllocation(nullptr, sizeAligned, nullptr, sizeAligned, nullptr);
 
-    gmm = Gmm::create(nullptr, sizeAligned, false);
+    gmm = new Gmm(nullptr, sizeAligned, false);
     wddmAllocation->gmm = gmm;
 
     if (!wddm->createAllocation64k(wddmAllocation)) {
@@ -114,7 +115,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory(size_t size, size_
     auto wddmAllocation = new WddmAllocation(pSysMem, sizeAligned, pSysMem, sizeAligned, nullptr);
     wddmAllocation->cpuPtrAllocated = true;
 
-    gmm = Gmm::create(pSysMem, sizeAligned, uncacheable);
+    gmm = new Gmm(pSysMem, sizeAligned, uncacheable);
 
     wddmAllocation->gmm = gmm;
 
@@ -149,7 +150,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory(size_t size, const
         auto allocation = new WddmAllocation(ptr, size, ptrAligned, sizeAligned, reserve);
         allocation->allocationOffset = offset;
 
-        Gmm *gmm = Gmm::create(ptrAligned, sizeAligned, false);
+        Gmm *gmm = new Gmm(ptrAligned, sizeAligned, false);
         allocation->gmm = gmm;
         if (createWddmAllocation(allocation, AllocationOrigin::EXTERNAL_ALLOCATION)) {
             return allocation;
@@ -188,7 +189,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemory(size_t size, 
     wddmAllocation->is32BitAllocation = true;
     wddmAllocation->allocationOffset = offset;
 
-    gmm = Gmm::create(ptrAligned, sizeAligned, false);
+    gmm = new Gmm(ptrAligned, sizeAligned, false);
     wddmAllocation->gmm = gmm;
 
     if (!createWddmAllocation(wddmAllocation, allocationOrigin)) {
@@ -200,7 +201,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemory(size_t size, 
 
     wddmAllocation->is32BitAllocation = true;
     auto baseAddress = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? allocator32Bit->getBase() : this->wddm->getGfxPartition().Heap32[1].Base;
-    wddmAllocation->gpuBaseAddress = Gmm::canonize(baseAddress);
+    wddmAllocation->gpuBaseAddress = GmmHelper::canonize(baseAddress);
 
     return wddmAllocation;
 }
@@ -231,7 +232,7 @@ GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handl
     } else if (requireSpecificBitness && this->force32bitAllocations) {
         is32BitAllocation = true;
         allocation->is32BitAllocation = true;
-        allocation->gpuBaseAddress = Gmm::canonize(allocator32Bit->getBase());
+        allocation->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
     }
     status = wddm->mapGpuVirtualAddress(allocation, ptr, size, is32BitAllocation, false, false);
     DEBUG_BREAK_IF(!status);
@@ -246,6 +247,32 @@ GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromSharedHandle(
 
 GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromNTHandle(void *handle) {
     return createAllocationFromHandle((osHandle)((UINT_PTR)handle), false, true);
+}
+
+void WddmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    WddmAllocation *wddmMemory = static_cast<WddmAllocation *>(gfxAllocation);
+    FragmentStorage fragment = {};
+    fragment.driverAllocation = true;
+    fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
+    fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
+
+    fragment.osInternalStorage = new OsHandle();
+    fragment.osInternalStorage->gpuPtr = gfxAllocation->getGpuAddress();
+    fragment.osInternalStorage->handle = wddmMemory->handle;
+    fragment.osInternalStorage->gmm = gfxAllocation->gmm;
+    fragment.residency = &wddmMemory->getResidencyData();
+    hostPtrManager.storeFragment(fragment);
+}
+
+void WddmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    auto buffer = gfxAllocation->getUnderlyingBuffer();
+    auto fragment = hostPtrManager.getFragment(buffer);
+    if (fragment && fragment->driverAllocation) {
+        OsHandle *osStorageToRelease = fragment->osInternalStorage;
+        if (hostPtrManager.releaseHostPtr(buffer)) {
+            delete osStorageToRelease;
+        }
+    }
 }
 
 void *WddmMemoryManager::lockResource(GraphicsAllocation *graphicsAllocation) {
@@ -277,6 +304,7 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
         }
         delete input->gmm;
     }
+
     if (input->peekSharedHandle() == false &&
         input->cpuPtrAllocated == false &&
         input->fragmentsStorage.fragmentCount > 0) {
@@ -336,7 +364,7 @@ MemoryManager::AllocationStatus WddmMemoryManager::populateOsHandles(OsHandleSto
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
             handleStorage.fragmentStorageData[i].residency = new ResidencyData();
 
-            handleStorage.fragmentStorageData[i].osHandleStorage->gmm = Gmm::create(handleStorage.fragmentStorageData[i].cpuPtr, handleStorage.fragmentStorageData[i].fragmentSize, false);
+            handleStorage.fragmentStorageData[i].osHandleStorage->gmm = new Gmm(handleStorage.fragmentStorageData[i].cpuPtr, handleStorage.fragmentStorageData[i].fragmentSize, false);
             allocatedFragmentIndexes[allocatedFragmentsCounter] = i;
             allocatedFragmentsCounter++;
         }
@@ -384,9 +412,27 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
     }
 }
 
+void WddmMemoryManager::obtainGpuAddresFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage) {
+    if (this->force32bitAllocations && (handleStorage.fragmentCount > 0)) {
+        auto hostPtr = allocation->getUnderlyingBuffer();
+        auto fragment = hostPtrManager.getFragment(hostPtr);
+        if (fragment && fragment->driverAllocation) {
+            auto gpuPtr = handleStorage.fragmentStorageData[0].osHandleStorage->gpuPtr;
+            for (uint32_t i = 1; i < handleStorage.fragmentCount; i++) {
+                if (handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr < gpuPtr) {
+                    gpuPtr = handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr;
+                }
+            }
+            allocation->allocationOffset = reinterpret_cast<uint64_t>(hostPtr) & MemoryConstants::pageMask;
+            allocation->setGpuAddress(gpuPtr);
+        }
+    }
+}
+
 GraphicsAllocation *WddmMemoryManager::createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) {
     auto allocation = new WddmAllocation(const_cast<void *>(hostPtr), hostPtrSize, const_cast<void *>(hostPtr), hostPtrSize, nullptr);
     allocation->fragmentsStorage = handleStorage;
+    obtainGpuAddresFromFragments(allocation, handleStorage);
     return allocation;
 }
 
@@ -599,8 +645,6 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
 
         acquireResidencyLock();
 
-        size_t size = trimCandidateList.size();
-
         WddmAllocation *wddmAllocation = nullptr;
         while ((wddmAllocation = getTrimCandidateHead()) != nullptr) {
 
@@ -611,7 +655,6 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
 
                 DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation: handle =", wddmAllocation->handle, "lastFence =", (wddmAllocation)->getResidencyData().lastFence);
 
-                size_t fragmentsSizeToEvict = 0;
                 uint32_t fragmentsToEvict = 0;
 
                 if (wddmAllocation->fragmentsStorage.fragmentCount == 0) {

@@ -124,6 +124,9 @@ Buffer *Buffer::create(Context *context,
             }
             if (allocateMemory) {
                 memory = memoryManager->createGraphicsAllocationWithRequiredBitness(size, nullptr, true);
+                if (memory) {
+                    memoryManager->addAllocationToHostPtrManager(memory);
+                }
                 if (context->isProvidingPerformanceHints()) {
                     context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_BUFFER_NEEDS_ALLOCATE_MEMORY);
                 }
@@ -146,8 +149,8 @@ Buffer *Buffer::create(Context *context,
             }
 
             auto allocationType = (flags & (CL_MEM_READ_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS))
-                                      ? GraphicsAllocation::ALLOCATION_TYPE_BUFFER
-                                      : GraphicsAllocation::ALLOCATION_TYPE_BUFFER | GraphicsAllocation::ALLOCATION_TYPE_WRITABLE;
+                                      ? GraphicsAllocation::AllocationType::BUFFER
+                                      : GraphicsAllocation::AllocationType::BUFFER | GraphicsAllocation::AllocationType::WRITABLE;
             memory->setAllocationType(allocationType);
 
             DBG_LOG(LogMemoryObject, __FUNCTION__, "hostPtr:", hostPtr, "size:", size, "memoryStorage:", memory->getUnderlyingBuffer(), "GPU address:", std::hex, memory->getGpuAddress());
@@ -166,6 +169,7 @@ Buffer *Buffer::create(Context *context,
                                      isHostPtrSVM,
                                      false);
             if (!pBuffer && allocateMemory) {
+                memoryManager->removeAllocationFromHostPtrManager(memory);
                 memoryManager->freeGraphicsMemory(memory);
                 memory = nullptr;
             }
@@ -208,10 +212,16 @@ void Buffer::checkMemory(cl_mem_flags flags,
 
     if (flags & CL_MEM_USE_HOST_PTR) {
         if (hostPtr) {
+            auto fragment = memMngr->hostPtrManager.getFragment(hostPtr);
+            if (fragment && fragment->driverAllocation) {
+                errcodeRet = CL_INVALID_HOST_PTR;
+                return;
+            }
             if (alignUp(hostPtr, MemoryConstants::cacheLineSize) != hostPtr ||
                 alignUp(size, MemoryConstants::cacheLineSize) != size ||
                 minAddress > reinterpret_cast<uintptr_t>(hostPtr) ||
-                DebugManager.flags.DisableZeroCopyForUseHostPtr.get()) {
+                DebugManager.flags.DisableZeroCopyForUseHostPtr.get() ||
+                DebugManager.flags.DisableZeroCopyForBuffers.get()) {
                 allocateMemory = true;
                 isZeroCopy = false;
                 copyMemoryFromHostPtr = true;
@@ -224,6 +234,9 @@ void Buffer::checkMemory(cl_mem_flags flags,
     } else {
         allocateMemory = true;
         isZeroCopy = true;
+        if (DebugManager.flags.DisableZeroCopyForBuffers.get()) {
+            isZeroCopy = false;
+        }
     }
 
     if (flags & CL_MEM_COPY_HOST_PTR) {
@@ -361,13 +374,32 @@ Buffer *Buffer::createBufferHw(Context *context,
     return pBuffer;
 }
 
-void Buffer::setSurfaceState(Context *context,
+Buffer *Buffer::createBufferHwFromDevice(const Device *device,
+                                         cl_mem_flags flags,
+                                         size_t size,
+                                         void *memoryStorage,
+                                         void *hostPtr,
+                                         GraphicsAllocation *gfxAllocation,
+                                         bool zeroCopy,
+                                         bool isHostPtrSVM,
+                                         bool isImageRedescribed) {
+
+    const auto &hwInfo = device->getHardwareInfo();
+
+    auto funcCreate = bufferFactory[hwInfo.pPlatform->eRenderCoreFamily].createBufferFunction;
+    DEBUG_BREAK_IF(nullptr == funcCreate);
+    auto pBuffer = funcCreate(nullptr, flags, size, memoryStorage, hostPtr, gfxAllocation,
+                              zeroCopy, isHostPtrSVM, isImageRedescribed);
+    return pBuffer;
+}
+
+void Buffer::setSurfaceState(const Device *device,
                              void *surfaceState,
                              size_t svmSize,
                              void *svmPtr,
                              GraphicsAllocation *gfxAlloc,
                              cl_mem_flags flags) {
-    auto buffer = Buffer::createBufferHw(context, flags, svmSize, svmPtr, svmPtr, gfxAlloc, false, false, false);
+    auto buffer = Buffer::createBufferHwFromDevice(device, flags, svmSize, svmPtr, svmPtr, gfxAlloc, false, false, false);
     buffer->setArgStateful(surfaceState);
     buffer->graphicsAllocation = nullptr;
     delete buffer;

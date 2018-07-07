@@ -24,8 +24,8 @@
 
 namespace OCLRT {
 extern bool overrideCommandStreamReceiverCreation;
-extern bool overrideDeviceWithNullHardwareInfo;
+extern bool overrideDeviceWithDefaultHardwareInfo;
 
 extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo);
 extern bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned);
-}
+} // namespace OCLRT

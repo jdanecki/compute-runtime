@@ -20,9 +20,11 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/surface_formats.h"
 
-void OCLRT::Gmm::applyAuxFlags(ImageInfo &imgInfo, const HardwareInfo &hwInfo) {
-}
+using namespace OCLRT;
+
+void Gmm::applyAuxFlagsForImage(ImageInfo &imgInfo) {}
+void Gmm::applyAuxFlagsForBuffer(bool preferRenderCompression) {}

@@ -22,6 +22,7 @@
 
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/helpers/options.h"
@@ -75,9 +76,9 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
             return nullptr;
         }
         uint64_t offset = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr) & MemoryConstants::pageMask);
-        MemoryAllocation *memAlloc = new MemoryAllocation(false, reinterpret_cast<void *>(ptr), Gmm::canonize(gpuVirtualAddress + offset), size, counter);
+        MemoryAllocation *memAlloc = new MemoryAllocation(false, reinterpret_cast<void *>(ptr), GmmHelper::canonize(gpuVirtualAddress + offset), size, counter);
         memAlloc->is32BitAllocation = true;
-        memAlloc->gpuBaseAddress = Gmm::canonize(allocator32Bit->getBase());
+        memAlloc->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
         memAlloc->sizeToFree = allocationSize;
 
         counter++;
@@ -93,9 +94,9 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
 
     MemoryAllocation *memoryAllocation = nullptr;
     if (ptrAlloc != nullptr) {
-        memoryAllocation = new MemoryAllocation(true, ptrAlloc, Gmm::canonize(gpuAddress), size, counter);
+        memoryAllocation = new MemoryAllocation(true, ptrAlloc, GmmHelper::canonize(gpuAddress), size, counter);
         memoryAllocation->is32BitAllocation = true;
-        memoryAllocation->gpuBaseAddress = Gmm::canonize(allocator32Bit->getBase());
+        memoryAllocation->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
         memoryAllocation->sizeToFree = allocationSize;
         memoryAllocation->cpuPtrAllocated = true;
     }
@@ -108,6 +109,26 @@ GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocationFromSharedH
     graphicsAllocation->setSharedHandle(handle);
     graphicsAllocation->is32BitAllocation = requireSpecificBitness;
     return graphicsAllocation;
+}
+
+void OsAgnosticMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    FragmentStorage fragment = {};
+    fragment.driverAllocation = true;
+    fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
+    fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
+    fragment.osInternalStorage = new OsHandle();
+    hostPtrManager.storeFragment(fragment);
+}
+
+void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) {
+    auto buffer = gfxAllocation->getUnderlyingBuffer();
+    auto fragment = hostPtrManager.getFragment(buffer);
+    if (fragment && fragment->driverAllocation) {
+        OsHandle *osStorageToRelease = fragment->osInternalStorage;
+        if (hostPtrManager.releaseHostPtr(buffer)) {
+            delete osStorageToRelease;
+        }
+    }
 }
 
 void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
@@ -166,7 +187,7 @@ MemoryManager::AllocationStatus OsAgnosticMemoryManager::populateOsHandles(OsHan
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
             handleStorage.fragmentStorageData[i].residency = new ResidencyData();
 
-            FragmentStorage newFragment;
+            FragmentStorage newFragment = {};
             newFragment.fragmentCpuPointer = const_cast<void *>(handleStorage.fragmentStorageData[i].cpuPtr);
             newFragment.fragmentSize = handleStorage.fragmentStorageData[i].fragmentSize;
             newFragment.osInternalStorage = handleStorage.fragmentStorageData[i].osHandleStorage;

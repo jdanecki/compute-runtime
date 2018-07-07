@@ -21,6 +21,7 @@
  */
 
 #include "hw_cmds.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/helpers/ptr_math.h"
@@ -250,7 +251,7 @@ HWTEST_F(ImageSetArgTest, givenOffsetedBufferWhenSetKernelArgImageIscalledThenFu
 }
 
 HWTEST_F(ImageSetArgTest, clSetKernelArgImage) {
-    auto imageMocs = Gmm::getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
+    auto imageMocs = GmmHelper::getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     cl_mem memObj = srcImage;
 
@@ -392,7 +393,7 @@ HWTEST_F(ImageSetArgTest, clSetKernelArgImage1Darray) {
     EXPECT_EQ(image1Darray->getImageDesc().image_array_size, surfaceState->getRenderTargetViewExtent());
     EXPECT_EQ(image1Darray->getImageDesc().image_row_pitch, surfaceState->getSurfacePitch());
     EXPECT_EQ(0u, surfaceState->getSurfaceQpitch() % 4);
-    EXPECT_EQ(image1Darray->getGraphicsAllocation()->gmm->queryQPitch(::renderCoreFamily, GMM_RESOURCE_TYPE::RESOURCE_1D), surfaceState->getSurfaceQpitch());
+    EXPECT_EQ(image1Darray->getGraphicsAllocation()->gmm->queryQPitch(GMM_RESOURCE_TYPE::RESOURCE_1D), surfaceState->getSurfaceQpitch());
 
     EXPECT_EQ(image1Darray->getSurfaceFormatInfo().GenxSurfaceFormat, (GFX3DSTATE_SURFACEFORMAT)surfaceState->getSurfaceFormat());
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_1D, surfaceState->getSurfaceType());
@@ -416,7 +417,7 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithoutUnifiedAuxC
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     McsSurfaceInfo msi = {10, 20, 3};
     auto mcsAlloc = context->getMemoryManager()->allocateGraphicsMemory(4096);
-    mcsAlloc->gmm = Gmm::create(nullptr, 1, false);
+    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.num_samples = 8;
 
@@ -451,7 +452,9 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithoutUnifiedAuxC
 }
 
 HWTEST_F(ImageSetArgTest, givenDepthFormatWhenSetArgIsCalledThenProgramAuxFields) {
-    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
     McsSurfaceInfo msi = {0, 0, 3};
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.num_samples = 8;
@@ -475,7 +478,7 @@ HWTEST_F(ImageSetArgTest, givenDepthFormatWhenSetArgIsCalledThenProgramAuxFields
     EXPECT_TRUE(Image::isDepthFormat(image->getImageFormat()));
     EXPECT_TRUE(surfaceState->getMultisampledSurfaceStorageFormat() ==
                 RENDER_SURFACE_STATE::MULTISAMPLED_SURFACE_STORAGE_FORMAT::MULTISAMPLED_SURFACE_STORAGE_FORMAT_DEPTH_STENCIL);
-    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == (typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)0);
+    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
     EXPECT_EQ(1u, surfaceState->getAuxiliarySurfacePitch());
     EXPECT_EQ(0u, surfaceState->getAuxiliarySurfaceQpitch());
     EXPECT_EQ(msi.multisampleCount, static_cast<uint32_t>(surfaceState->getNumberOfMultisamples()));
@@ -513,7 +516,7 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationAndRenderCompressionWhenSetArgOnMult
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     McsSurfaceInfo msi = {10, 20, 3};
     auto mcsAlloc = context->getMemoryManager()->allocateGraphicsMemory(4096);
-    mcsAlloc->gmm = Gmm::create(nullptr, 1, false);
+    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.num_samples = 8;
 
@@ -539,7 +542,9 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationAndRenderCompressionWhenSetArgOnMult
 }
 
 HWTEST_F(ImageSetArgTest, givenDepthFormatAndRenderCompressionWhenSetArgOnMultisampledImgIsCalledThenDontProgramAuxFields) {
-    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
     McsSurfaceInfo msi = {0, 0, 3};
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     cl_image_format imgFormat = {CL_DEPTH, CL_FLOAT};
@@ -559,7 +564,7 @@ HWTEST_F(ImageSetArgTest, givenDepthFormatAndRenderCompressionWhenSetArgOnMultis
     EXPECT_TRUE(Image::isDepthFormat(image->getImageFormat()));
     EXPECT_TRUE(surfaceState->getMultisampledSurfaceStorageFormat() ==
                 RENDER_SURFACE_STATE::MULTISAMPLED_SURFACE_STORAGE_FORMAT::MULTISAMPLED_SURFACE_STORAGE_FORMAT_DEPTH_STENCIL);
-    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == (typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)0);
+    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
     EXPECT_EQ(1u, surfaceState->getAuxiliarySurfacePitch());
     EXPECT_EQ(0u, surfaceState->getAuxiliarySurfaceQpitch());
     EXPECT_EQ(msi.multisampleCount, static_cast<uint32_t>(surfaceState->getNumberOfMultisamples()));
@@ -567,10 +572,12 @@ HWTEST_F(ImageSetArgTest, givenDepthFormatAndRenderCompressionWhenSetArgOnMultis
 }
 
 HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithUnifiedAuxCapabilityThenProgramAuxFieldsForCcs) {
-    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
     McsSurfaceInfo msi = {10, 20, 3};
     auto mcsAlloc = context->getMemoryManager()->allocateGraphicsMemory(4096);
-    mcsAlloc->gmm = Gmm::create(nullptr, 1, false);
+    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.num_samples = 8;
 
@@ -596,7 +603,7 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithUnifiedAuxCapa
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(ptrOffset(pKernel->getSurfaceStateHeap(),
                                                                                  pKernelInfo->kernelArgInfo[0].offsetHeap));
 
-    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == (typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)5);
+    EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     EXPECT_EQ(expectedRenderAuxPitchTiles, surfaceState->getAuxiliarySurfacePitch());
     EXPECT_EQ(expectedAuxQPitch, surfaceState->getAuxiliarySurfaceQpitch());
     EXPECT_EQ(surfaceState->getSurfaceBaseAddress() + expectedAuxSurfaceOffset, surfaceState->getAuxiliarySurfaceBaseAddress());
@@ -710,8 +717,9 @@ HWTEST_F(ImageSetArgTest, getKernelArgShouldReturnImage) {
 }
 
 HWTEST_F(ImageSetArgTest, givenRenderCompressedResourceWhenSettingImgArgThenSetCorrectAuxParams) {
-    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
-    typedef typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE AUXILIARY_SURFACE_MODE;
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
     auto surfaceState = RENDER_SURFACE_STATE::sInit();
 
     auto gmm = srcImage->getGraphicsAllocation()->gmm;
@@ -728,7 +736,7 @@ HWTEST_F(ImageSetArgTest, givenRenderCompressedResourceWhenSettingImgArgThenSetC
 
     srcImage->setImageArg(&surfaceState, false, 0);
 
-    EXPECT_TRUE(surfaceState.getAuxiliarySurfaceMode() == (typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)5);
+    EXPECT_TRUE(surfaceState.getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     EXPECT_EQ(expectedRenderAuxPitchTiles, surfaceState.getAuxiliarySurfacePitch());
     EXPECT_EQ(expectedAuxQPitch, surfaceState.getAuxiliarySurfaceQpitch());
     EXPECT_EQ(surfaceState.getSurfaceBaseAddress() + expectedAuxSurfaceOffset, surfaceState.getAuxiliarySurfaceBaseAddress());
@@ -793,7 +801,7 @@ class ImageMediaBlockSetArgTest : public ImageSetArgTest {
 };
 
 HWTEST_F(ImageMediaBlockSetArgTest, clSetKernelArgImage) {
-    auto imageMocs = Gmm::getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
+    auto imageMocs = GmmHelper::getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     cl_mem memObj = srcImage;
 

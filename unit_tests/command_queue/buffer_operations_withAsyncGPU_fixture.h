@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -24,14 +24,12 @@
 
 #include "buffer_operations_fixture.h"
 #include "runtime/helpers/options.h"
+#include "runtime/platform/platform.h"
 
 namespace OCLRT {
 struct AsyncGPUoperations : public EnqueueWriteBufferTypeTest {
-
-    AsyncGPUoperations(void) {
-    }
-
     void SetUp() override {
+        constructPlatform();
         storeInitHWTag = initialHardwareTag;
         initialHardwareTag = 0;
         EnqueueWriteBufferTypeTest::SetUp();
@@ -40,9 +38,10 @@ struct AsyncGPUoperations : public EnqueueWriteBufferTypeTest {
     void TearDown() override {
         initialHardwareTag = storeInitHWTag;
         EnqueueWriteBufferTypeTest::TearDown();
+        platformImpl.reset(nullptr);
     }
 
   protected:
     int storeInitHWTag;
 };
-}
+} // namespace OCLRT

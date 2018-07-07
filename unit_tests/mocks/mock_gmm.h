@@ -21,6 +21,7 @@
  */
 
 #pragma once
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "runtime/helpers/options.h"
@@ -34,12 +35,8 @@ static SurfaceFormatInfo mockSurfaceFormat;
 
 class MockGmm : public Gmm {
   public:
-    static std::unique_ptr<Gmm> queryImgParams(ImageInfo &imgInfo, const HardwareInfo *hwInfo = nullptr) {
-        auto queryHwInfo = hwInfo;
-        if (!queryHwInfo) {
-            queryHwInfo = *platformDevices;
-        }
-        return std::unique_ptr<Gmm>(Gmm::createGmmAndQueryImgParams(imgInfo, *queryHwInfo));
+    static std::unique_ptr<Gmm> queryImgParams(ImageInfo &imgInfo) {
+        return std::unique_ptr<Gmm>(new Gmm(imgInfo));
     }
 
     static ImageInfo initImgInfo(cl_image_desc &imgDesc, int baseMipLevel, const SurfaceFormatInfo *surfaceFormat) {

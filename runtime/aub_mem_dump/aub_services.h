@@ -93,10 +93,12 @@ struct CmdServicesMemTraceVersion {
         enum {
             Blc = 2,
             Il = 5,
+            Glk = 17,
             Skl = 12,
             Hsw = 9,
             Bxt = 14,
             Sbr = 6,
+            Cnl = 15,
             Ivb = 7,
             Chv = 13,
             El = 4,
@@ -106,7 +108,8 @@ struct CmdServicesMemTraceVersion {
             Vlv = 10,
             Cln = 1,
             Kbl = 16,
-            Bdw = 11
+            Bdw = 11,
+            Cfl = 24
         };
     };
     struct RecordingMethodValues {

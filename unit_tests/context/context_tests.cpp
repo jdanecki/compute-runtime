@@ -58,11 +58,8 @@ struct ContextTest : public PlatformFixture,
 
     using PlatformFixture::SetUp;
 
-    ContextTest() {
-    }
-
     void SetUp() override {
-        PlatformFixture::SetUp(numPlatformDevices, platformDevices);
+        PlatformFixture::SetUp();
 
         cl_platform_id platform = pPlatform;
         properties = new cl_context_properties[3];
@@ -215,6 +212,30 @@ TEST_F(ContextTest, givenDefaultDeviceCmdQueueWithContextWhenBeingCreatedNextDel
     EXPECT_EQ(1, context.getRefInternalCount());
 }
 
+TEST_F(ContextTest, givenContextWhenItIsCreatedFromDeviceThenItAddsRefCountToThisDevice) {
+    auto device = castToObject<Device>(devices[0]);
+    EXPECT_EQ(2, device->getRefInternalCount());
+    cl_device_id deviceID = devices[0];
+    std::unique_ptr<Context> context(Context::create<Context>(0, DeviceVector(&deviceID, 1), nullptr, nullptr, retVal));
+    EXPECT_EQ(3, device->getRefInternalCount());
+    context.reset(nullptr);
+    EXPECT_EQ(2, device->getRefInternalCount());
+}
+
+TEST_F(ContextTest, givenContextWhenItIsCreatedFromMultipleDevicesThenItAddsRefCountToThoseDevices) {
+    auto device = castToObject<Device>(devices[0]);
+    EXPECT_EQ(2, device->getRefInternalCount());
+
+    DeviceVector devicesVector;
+    devicesVector.push_back(device);
+    devicesVector.push_back(device);
+
+    std::unique_ptr<Context> context(Context::create<Context>(0, devicesVector, nullptr, nullptr, retVal));
+    EXPECT_EQ(4, device->getRefInternalCount());
+    context.reset(nullptr);
+    EXPECT_EQ(2, device->getRefInternalCount());
+}
+
 TEST_F(ContextTest, givenSpecialCmdQueueWithContextWhenBeingCreatedNextAutoDeletedThenContextRefCountShouldNeitherBeIncrementedNorNextDecremented) {
     MockContext context((Device *)devices[0], true);
     EXPECT_EQ(1, context.getRefInternalCount());
@@ -276,6 +297,12 @@ TEST_F(ContextTest, givenContextWhenSharingTableEmptyThenReturnsNullptr) {
     context.clearSharingFunctions();
     auto *sharingF = context.getSharing<MockSharingFunctions>();
     EXPECT_EQ(sharingF, nullptr);
+}
+
+TEST_F(ContextTest, givenNullptrWhenRegisteringSharingToContextThenAbortExecution) {
+    MockContext context;
+    context.clearSharingFunctions();
+    EXPECT_THROW(context.registerSharing<MockSharingFunctions>(nullptr), std::exception);
 }
 
 TEST_F(ContextTest, givenContextWhenSharingTableIsNotEmptyThenReturnsSharingFunctionPointer) {

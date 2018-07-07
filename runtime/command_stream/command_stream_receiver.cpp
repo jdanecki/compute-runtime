@@ -90,8 +90,10 @@ void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
     gfxAllocation.residencyTaskCount = ObjectNotResident;
 }
 
-void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency) {
+void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency, bool blocking) {
     auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getMemoryManager()->getResidencyAllocations();
+    this->waitBeforeMakingNonResidentWhenRequired(blocking);
+
     for (auto &surface : residencyAllocations) {
         this->makeNonResident(*surface);
     }
@@ -164,7 +166,7 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
             allocation = memoryManager->allocateGraphicsMemory(requiredSize, MemoryConstants::pageSize);
         }
 
-        allocation->setAllocationType(GraphicsAllocation::ALLOCATION_TYPE_LINEAR_STREAM);
+        allocation->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
         //pass current allocation to reusable list
         if (commandStream.getCpuBase()) {
@@ -239,6 +241,21 @@ void CommandStreamReceiver::setRequiredScratchSize(uint32_t newRequiredScratchSi
     }
 }
 
+void CommandStreamReceiver::initProgrammingFlags() {
+    isPreambleSent = false;
+    GSBAFor32BitProgrammed = false;
+    mediaVfeStateDirty = true;
+    lastVmeSubslicesConfig = false;
+
+    lastSentL3Config = 0;
+    lastSentCoherencyRequest = -1;
+    lastMediaSamplerConfig = -1;
+    lastPreemptionMode = PreemptionMode::Initial;
+    latestSentStatelessMocsConfig = 0;
+}
+
+void CommandStreamReceiver::activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) {}
+
 GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
     UNRECOVERABLE_IF(debugSurface != nullptr);
     debugSurface = memoryManager->allocateGraphicsMemory(size);
@@ -292,7 +309,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
         finalHeapSize = std::max(heapMemory->getUnderlyingBufferSize(), finalHeapSize);
     }
 
-    heapMemory->setAllocationType(GraphicsAllocation::ALLOCATION_TYPE_LINEAR_STREAM);
+    heapMemory->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
     if (IndirectHeap::SURFACE_STATE == heapType) {
         DEBUG_BREAK_IF(minRequiredSize > maxSshSize);

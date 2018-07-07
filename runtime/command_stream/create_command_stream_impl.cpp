@@ -41,27 +41,15 @@ CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo) {
     if (csr) {
         switch (csr) {
         case CSR_AUB:
-            Gmm::initContext(pHwInfo->pPlatform,
-                             pHwInfo->pSkuTable,
-                             pHwInfo->pWaTable,
-                             pHwInfo->pSysInfo);
             commandStreamReceiver = AUBCommandStreamReceiver::create(*pHwInfo, "aubfile", true);
             break;
         case CSR_TBX:
-            Gmm::initContext(pHwInfo->pPlatform,
-                             pHwInfo->pSkuTable,
-                             pHwInfo->pWaTable,
-                             pHwInfo->pSysInfo);
             commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, false);
             break;
         case CSR_HW_WITH_AUB:
             commandStreamReceiver = funcCreate(*pHwInfo, true);
             break;
         case CSR_TBX_WITH_AUB:
-            Gmm::initContext(pHwInfo->pPlatform,
-                             pHwInfo->pSkuTable,
-                             pHwInfo->pWaTable,
-                             pHwInfo->pSysInfo);
             commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, true);
             break;
         default:
@@ -83,14 +71,7 @@ bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
         case CSR_TBX_WITH_AUB:
             auto productFamily = DebugManager.flags.ProductFamilyOverride.get();
             auto hwInfoConst = *platformDevices;
-            for (int j = 0; j < IGFX_MAX_PRODUCT; j++) {
-                if (hardwarePrefix[j] == nullptr)
-                    continue;
-                if (strcmp(hardwarePrefix[j], productFamily.c_str()) == 0) {
-                    hwInfoConst = hardwareInfoTable[j];
-                    break;
-                }
-            }
+            getHwInfoForPlatformString(productFamily.c_str(), hwInfoConst);
             *hwInfo = const_cast<HardwareInfo *>(hwInfoConst);
             hardwareInfoSetupGt[hwInfoConst->pPlatform->eProductFamily](const_cast<GT_SYSTEM_INFO *>(hwInfo[0]->pSysInfo));
             numDevicesReturned = 1;
@@ -104,8 +85,6 @@ bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
     }
     result = DeviceFactory::getDevices(hwInfo, numDevicesReturned);
     DEBUG_BREAK_IF(result && (hwInfo == nullptr));
-    // For now only one device should be present
-    DEBUG_BREAK_IF(result && (numDevicesReturned != 1));
     return result;
 }
 

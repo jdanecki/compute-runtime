@@ -38,6 +38,7 @@ class OSTime;
 class DriverInfo;
 struct HardwareInfo;
 class SourceLevelDebugger;
+class ExecutionEnvironment;
 
 template <>
 struct OpenCLObjectMapper<_cl_device_id> {
@@ -52,11 +53,11 @@ class Device : public BaseObject<_cl_device_id> {
     static const cl_ulong objectMagic = 0x8055832341AC8D08LL;
 
     template <typename T>
-    static T *create(const HardwareInfo *pHwInfo,
-                     bool isRootDevice = true) {
+    static T *create(const HardwareInfo *pHwInfo, ExecutionEnvironment *execEnv) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
         T *device = new T(*pHwInfo);
-        if (false == createDeviceImpl(pHwInfo, isRootDevice, *device)) {
+        device->connectToExecutionEnvironment(execEnv);
+        if (false == createDeviceImpl(pHwInfo, *device)) {
             delete device;
             return nullptr;
         }
@@ -116,7 +117,6 @@ class Device : public BaseObject<_cl_device_id> {
     /* We hide the retain and release function of BaseObject. */
     void retain() override;
     unique_ptr_if_unused<Device> release() override;
-    bool isRootDevice() const { return isRoot; }
     OSTime *getOSTime() const { return osTime.get(); };
     double getProfilingTimerResolution();
     void increaseProgramCount() { programCount++; }
@@ -134,19 +134,20 @@ class Device : public BaseObject<_cl_device_id> {
     MOCKABLE_VIRTUAL const WhitelistedRegisters &getWhitelistedRegisters() { return hwInfo.capabilityTable.whitelistedRegisters; }
     std::vector<unsigned int> simultaneousInterops;
     std::string deviceExtensions;
+    std::string name;
     bool getEnabled64kbPages();
     bool isSourceLevelDebuggerActive() const;
     SourceLevelDebugger *getSourceLevelDebugger() { return sourceLevelDebugger.get(); }
+    void connectToExecutionEnvironment(ExecutionEnvironment *executionEnvironment);
 
   protected:
     Device() = delete;
-    Device(const HardwareInfo &hwInfo,
-           bool isRootDevice = true);
+    Device(const HardwareInfo &hwInfo);
 
-    static bool createDeviceImpl(const HardwareInfo *pHwInfo,
-                                 bool isRootDevice, Device &outDevice);
+    static bool createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice);
     static const HardwareInfo *getDeviceInitHwInfo(const HardwareInfo *pHwInfoIn);
     MOCKABLE_VIRTUAL void initializeCaps();
+    void setupFp64Flags();
     void appendOSExtensions(std::string &deviceExtensions);
 
     unsigned int enabledClVersion;
@@ -154,7 +155,6 @@ class Device : public BaseObject<_cl_device_id> {
     const HardwareInfo &hwInfo;
     DeviceInfo deviceInfo;
 
-    const bool isRoot;
     CommandStreamReceiver *commandStreamReceiver;
 
     volatile uint32_t *tagAddress;
@@ -172,6 +172,7 @@ class Device : public BaseObject<_cl_device_id> {
     PreemptionMode preemptionMode;
     EngineType engineType;
     std::unique_ptr<SourceLevelDebugger> sourceLevelDebugger;
+    ExecutionEnvironment *executionEnvironment = nullptr;
 };
 
 template <cl_device_info Param>

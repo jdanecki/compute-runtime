@@ -63,7 +63,7 @@ class D3D9Tests : public PlatformFixture, public ::testing::Test {
         }
         GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imginfo, Gmm *gmm) override {
             delete gmm;
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, false);
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, false, false);
             alloc->gmm = forceGmm;
             gmmOwnershipPassed = true;
             return alloc;
@@ -91,7 +91,7 @@ class D3D9Tests : public PlatformFixture, public ::testing::Test {
 
     void SetUp() override {
         dbgRestore = new DebugManagerStateRestore();
-        PlatformFixture::SetUp(numPlatformDevices, platformDevices);
+        PlatformFixture::SetUp();
         context = new MockContext(pPlatform->getDevice(0));
         context->forcePreferD3dSharedResources(true);
         context->setMemoryManager(&mockMM);

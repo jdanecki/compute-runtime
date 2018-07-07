@@ -44,7 +44,7 @@ endif()
 add_definitions(-DCL_USE_DEPRECATED_OPENCL_1_1_APIS -DCL_USE_DEPRECATED_OPENCL_1_2_APIS -DCL_USE_DEPRECATED_OPENCL_2_0_APIS)
 
 if(WIN32)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DWDDM_VERSION_NUMBER=23)
 endif()
 
 set(CMAKE_C_FLAGS_RELEASEINTERNAL ${CMAKE_C_FLAGS_RELEASE})
@@ -133,15 +133,12 @@ endif()
 message(STATUS "i915 includes dir: ${I915_INCLUDES_DIR}")
 
 if(NOT DEFINED KHRONOS_HEADERS_DIR)
-  get_filename_component(DIR_tmp "../khronos/opencl21/" ABSOLUTE)
+  get_filename_component(DIR_tmp "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencl_headers" ABSOLUTE)
   if(IS_DIRECTORY ${DIR_tmp})
     set(KHRONOS_HEADERS_DIR ${DIR_tmp})
+    add_definitions(-DCL_TARGET_OPENCL_VERSION=210)
   else()
-    get_filename_component(DIR_tmp "../khronos/" ABSOLUTE)
-    if(IS_DIRECTORY ${DIR_tmp})
-      set(KHRONOS_HEADERS_DIR ${DIR_tmp})
-      add_definitions(-DCL_TARGET_OPENCL_VERSION=210)
-    endif()
+    message(FATAL_ERROR "Khronos OpenCL headers not available!")
   endif()
 endif()
 message(STATUS "Khronos OpenCL headers dir: ${KHRONOS_HEADERS_DIR}")
@@ -190,57 +187,150 @@ endif()
 
 # Intel Graphics Compiler detection
 if(NOT IGC__IGC_TARGETS)
-    if(IGC_DIR)
+    # check whether igc is part of workspace
+    if(DEFINED IGC_DIR)
         get_filename_component(IGC_DIR "${IGC_DIR}" ABSOLUTE)
-    else(IGC_DIR)
+    else()
         get_filename_component(IGC_DIR_tmp "${CMAKE_SOURCE_DIR}/../igc" ABSOLUTE)
         if(IS_DIRECTORY "${IGC_DIR_tmp}")
             set(IGC_DIR "${IGC_DIR_tmp}")
         endif()
     endif()
-    if(NOT IS_DIRECTORY "${IGC_DIR}")
-        message(FATAL_ERROR "Intel Graphics Compiler not found!")
+
+    if(UNIX)
+        # on Unix-like use pkg-config
+        find_package(PkgConfig)
+        if(IS_DIRECTORY "${IGC_DIR}/lib/pkgconfig/")
+            set(ENV{PKG_CONFIG_PATH} "${IGC_DIR}/lib/pkgconfig/")
+        endif()
+        pkg_check_modules(IGDRCL__IGC igc-opencl>=18.26.612)
+        if(IS_DIRECTORY "${IGC_DIR}/lib/pkgconfig/")
+            unset(ENV{PKG_CONFIG_PATH})
+            set(IGDRCL__IGC_LIBRARY_PATH "${IGC_DIR}/lib/")
+            set(ENV{LD_LIBRARY_PATH} "${IGDRCL__IGC_LIBRARY_PATH}")
+        endif()
+
+        if(IGDRCL__IGC_FOUND)
+            if(IS_DIRECTORY "${IGC_DIR}/lib/pkgconfig/")
+                string(REPLACE "${IGDRCL__IGC_INCLUDEDIR}" "${IGC_DIR}/include/igc" IGDRCL__IGC_INCLUDE_DIRS "${IGDRCL__IGC_INCLUDE_DIRS}")
+            endif()
+
+            set(IGDRCL__IGC_INCLUDE_DIR ${IGDRCL__IGC_INCLUDE_DIRS})
+            message(STATUS "IGC include dirs: ${IGDRCL__IGC_INCLUDE_DIR}")
+        endif()
     endif()
 
-    message(STATUS "IGC source dir is: ${IGC_DIR}")
+    if(IGDRCL__IGC_FOUND)
+        # do nothing
+    elseif(EXISTS "${IGC_DIR}/CMakeLists.txt")
+        message(STATUS "IGC source dir is: ${IGC_DIR}")
 
-    set(IGC_OPTION__OUTPUT_DIR "${IGDRCL_BUILD_DIR}/igc")
-    set(IGC_OPTION__INCLUDE_IGC_COMPILER_TOOLS OFF)
-    add_subdirectory("${IGC_DIR}" "${IGDRCL_BUILD_DIR}/igc" EXCLUDE_FROM_ALL)
+        set(IGC_OPTION__OUTPUT_DIR "${IGDRCL_BUILD_DIR}/igc")
+        set(IGC_OPTION__INCLUDE_IGC_COMPILER_TOOLS OFF)
+        add_subdirectory("${IGC_DIR}" "${IGDRCL_BUILD_DIR}/igc" EXCLUDE_FROM_ALL)
+
+        set(IGDRCL__IGC_TARGETS "${IGC__IGC_TARGETS}")
+        foreach(TARGET_tmp ${IGDRCL__IGC_TARGETS})
+            list(APPEND IGDRCL__IGC_INCLUDE_DIR $<TARGET_PROPERTY:${TARGET_tmp},INTERFACE_INCLUDE_DIRECTORIES>)
+        endforeach(TARGET_tmp)
+        message(STATUS "IGC targets: ${IGDRCL__IGC_TARGETS}")
+    else()
+        message(FATAL_ERROR "Intel Graphics Compiler not found!")
+    endif()
+else()
+    set(IGDRCL__IGC_TARGETS "${IGC__IGC_TARGETS}")
+    foreach(TARGET_tmp ${IGDRCL__IGC_TARGETS})
+        list(APPEND IGDRCL__IGC_INCLUDE_DIR $<TARGET_PROPERTY:${TARGET_tmp},INTERFACE_INCLUDE_DIRECTORIES>)
+    endforeach(TARGET_tmp)
+    message(STATUS "IGC targets: ${IGDRCL__IGC_TARGETS}")
 endif()
 
-set(IGDRCL__IGC_TARGETS "${IGC__IGC_TARGETS}")
-foreach(TARGET_tmp ${IGDRCL__IGC_TARGETS})
-    list(APPEND IGDRCL__IGC_INCLUDE_DIR $<TARGET_PROPERTY:${TARGET_tmp},INTERFACE_INCLUDE_DIRECTORIES>)
-endforeach(TARGET_tmp)
-message(STATUS "IGC targets: ${IGDRCL__IGC_TARGETS}")
+if(WIN32)
+    set(IGC_LIBRARY_NAME "igc${NEO_BITS}")
+    set(FCL_LIBRARY_NAME "igdfcl${NEO_BITS}")
+endif()
 
 # GmmLib detection
 if(NOT GMMUMD_LIB_NAME)
-    if(TARGET gmm_umd)
-        set(GMMUMD_LIB_NAME "gmm_umd")
+  if(TARGET gmm_umd)
+    set(GMMUMD_LIB_NAME "gmm_umd")
+  else()
+    if(DEFINED GMM_SOURCE_DIR)
+      get_filename_component(GMM_SOURCE_DIR "${GMM_SOURCE_DIR}" ABSOLUTE)
     else()
-        if(GMM_SOURCE_DIR)
-            get_filename_component(GMM_SOURCE_DIR "${GMM_SOURCE_DIR}" ABSOLUTE)
-        else(GMM_SOURCE_DIR)
-            get_filename_component(GMM_SOURCE_DIR_tmp "${CMAKE_SOURCE_DIR}/../gmmlib" ABSOLUTE)
-            if(IS_DIRECTORY "${GMM_SOURCE_DIR_tmp}")
-                set(GMM_SOURCE_DIR "${GMM_SOURCE_DIR_tmp}")
-            endif()
-        endif()
-        if(NOT IS_DIRECTORY "${GMM_SOURCE_DIR}")
-            message(FATAL_ERROR "GmmLib not found!")
-        endif()
-
-        message(STATUS "GmmLib source dir is: ${GMM_SOURCE_DIR}")
-        add_subdirectory("${GMM_SOURCE_DIR}" "${IGDRCL_BUILD_DIR}/gmmlib")
-
-        if(NOT GMMUMD_LIB_NAME)
-            set(GMMUMD_LIB_NAME "gmm_umd")
-        endif()
+      get_filename_component(GMM_SOURCE_DIR_tmp "${CMAKE_SOURCE_DIR}/../gmmlib" ABSOLUTE)
+      if(IS_DIRECTORY "${GMM_SOURCE_DIR_tmp}")
+        set(GMM_SOURCE_DIR "${GMM_SOURCE_DIR_tmp}")
+      endif()
     endif()
+
+    if(UNIX)
+      find_package(PkgConfig)
+      if(IS_DIRECTORY "${GMM_SOURCE_DIR}/lib/pkgconfig/")
+        set(ENV{PKG_CONFIG_PATH} "${GMM_SOURCE_DIR}/lib/pkgconfig/")
+      endif()
+      pkg_check_modules(IGDRCL__GMM igdgmm)
+      if(IS_DIRECTORY "${GMM_SOURCE_DIR}/lib/pkgconfig/")
+        unset(ENV{PKG_CONFIG_PATH})
+      endif()
+
+      if(IGDRCL__GMM_FOUND)
+        if(IS_DIRECTORY "${GMM_SOURCE_DIR}/lib/pkgconfig/")
+          string(REPLACE "${IGDRCL__GMM_INCLUDEDIR}" "${GMM_SOURCE_DIR}/include/igdgmm" IGDRCL__GMM_INCLUDE_DIRS "${IGDRCL__GMM_INCLUDE_DIRS}")
+          string(REPLACE "${IGDRCL__GMM_LIBDIR}" "${GMM_SOURCE_DIR}/lib/${BUILD_TYPE_lower}" IGDRCL__GMM_LIBDIR "${IGDRCL__GMM_LIBDIR}")
+          link_directories(${IGDRCL__GMM_LIBDIR})
+        endif()
+
+        set(USE_STATIC_GMM TRUE)
+        set(GMMUMD_LIB_NAME "gmm_umd")
+
+        set(IGDRCL__GMM_INCLUDE_DIR ${IGDRCL__GMM_INCLUDE_DIRS})
+        set(UMKM_SHAREDDATA_INCLUDE_PATHS "${IGDRCL__GMM_INCLUDE_DIR}")
+        message(STATUS "GmmLib include dirs: ${IGDRCL__GMM_INCLUDE_DIR}")
+      endif()
+    endif()
+
+    if(IGDRCL__GMM_FOUND)
+      # do nothing
+    elseif(EXISTS "${GMM_SOURCE_DIR}/CMakeLists.txt")
+      message(STATUS "GmmLib source dir is: ${GMM_SOURCE_DIR}")
+      add_subdirectory("${GMM_SOURCE_DIR}" "${IGDRCL_BUILD_DIR}/gmmlib")
+
+      if(NOT GMMUMD_LIB_NAME)
+        set(GMMUMD_LIB_NAME "gmm_umd")
+      endif()
+
+      get_target_property(target_type ${GMMUMD_LIB_NAME} TYPE)
+
+      if(target_type STREQUAL "STATIC_LIBRARY")
+        set(USE_STATIC_GMM TRUE)
+      endif()
+      set(UMKM_SHAREDDATA_INCLUDE_PATHS $<TARGET_PROPERTY:${GMMUMD_LIB_NAME},INTERFACE_INCLUDE_DIRECTORIES>)
+    else()
+      message(FATAL_ERROR "GmmLib not found!")
+    endif()
+  endif()
+else()
+  get_target_property(target_type ${GMMUMD_LIB_NAME} TYPE)
+
+  if(target_type STREQUAL "STATIC_LIBRARY")
+    set(USE_STATIC_GMM TRUE)
+  endif()
+  set(UMKM_SHAREDDATA_INCLUDE_PATHS $<TARGET_PROPERTY:${GMMUMD_LIB_NAME},INTERFACE_INCLUDE_DIRECTORIES>)
 endif()
-set(UMKM_SHAREDDATA_INCLUDE_PATHS $<TARGET_PROPERTY:${GMMUMD_LIB_NAME},INTERFACE_INCLUDE_DIRECTORIES>)
+
+set(GMM_LIBRARY_NAME "igdgmm${NEO_BITS}")
+
+macro(copy_gmm_dll_for target)
+  if(WIN32 AND NOT USE_STATIC_GMM)
+    add_dependencies(${target} ${GMMUMD_LIB_NAME})
+    add_custom_command(
+      TARGET ${target}
+      POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${GMMUMD_LIB_NAME}> $<TARGET_FILE_DIR:${target}>
+    )
+  endif()
+endmacro()
 
 # Instrumentation detection
 if(NOT INSTRUMENTATION_LIB_NAME)
@@ -263,12 +353,20 @@ else()
     message(STATUS "Instrumentation library name: ${INSTRUMENTATION_LIB_NAME}")
 endif()
 
+set(SLD_LIBRARY_NAME "igfxdbgxchg")
+if(NEO_BITS STREQUAL "64")
+  set(SLD_LIBRARY_NAME "${SLD_LIBRARY_NAME}${NEO_BITS}")
+endif()
+
 add_subdirectory(third_party/gtest)
 
 add_definitions(-DGMM_OCL)
 
 # We want to organize our IDE targets into folders
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+# determine Neo version
+include(version.cmake)
 
 # Get available platfroms
 include(platforms.cmake)
@@ -310,10 +408,6 @@ option(IGDRCL_GCOV "generate gcov report" OFF)
 option(HAVE_TBX_SERVER "Compile TBX server from TbxAccess library" OFF)
 option(USE_CL_CACHE "Use OpenCL program binary cache" ON)
 set(CL_CACHE_LOCATION "cl_cache" CACHE STRING "OpenCL program binary cache location")
-
-if(NOT NEO_DRIVER_VERSION)
-  set(NEO_DRIVER_VERSION 1.0)
-endif()
 
 # Put profiling enable flag into define
 if(OCL_RUNTIME_PROFILING)
@@ -516,10 +610,6 @@ else()
     generate_runtime_lib(${NEO_MOCKABLE_LIB_NAME} TRUE FALSE)
 endif()
 
-if(TARGET OpenCL)
-	target_include_directories(OpenCL PRIVATE ${KHRONOS_HEADERS_DIR})
-endif()
-
 if(DEFAULT_TESTED_PLATFORM)
   add_subdirectory(unit_tests ${IGDRCL_BUILD_DIR}/unit_tests)
 endif()
@@ -532,5 +622,8 @@ endif(EXISTS ${IGDRCL_SOURCE_DIR}/../internal)
 include(package.cmake)
 
 configure_file(config.h.in ${IGDRCL_BUILD_DIR}/config.h)
-configure_file(compiler.config.h.in ${IGDRCL_BUILD_DIR}/compiler.config.h)
+if(NOT IGDRCL__IGC_FOUND)
+    configure_file(igc.opencl.h.in ${IGDRCL_BUILD_DIR}/igc.opencl.h)
+endif()
 configure_file(driver_version.h.in ${IGDRCL_BUILD_DIR}/driver_version.h) # Put Driver version into define
+configure_file(lib_names.h.in ${IGDRCL_BUILD_DIR}/lib_names.h)
